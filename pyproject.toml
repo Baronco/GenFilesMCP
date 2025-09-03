@@ -1,0 +1,16 @@
+[project]
+name = "powermcp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mcp[cli]>=1.12.3",
+    "numpy>=2.3.2",
+    "openpyxl>=3.1.5",
+    "pypandoc>=1.15",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.1.1",
+    "python-pptx>=1.0.2",
+    "smolagents>=1.20.0",
+]
