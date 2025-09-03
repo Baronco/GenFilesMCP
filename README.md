@@ -71,3 +71,10 @@ Your MCPO (MCP orchestration) config must include an entry for this MCP, for exa
 - Implement RBAC, authentication for MCP endpoints, and rate limiting.
 - Improve logging and error reporting.
 - Provide a secure template sandbox or a pre-approved template store.
+
+
+## Example
+
+This README file was generated using the GenFiles MCP server, with GPT5-mini.
+
+![server](img/example.png)
