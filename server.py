@@ -80,6 +80,7 @@ Template structure:
 def power_point():
     # Allowed packages
     import numpy as np
+    import os
     from pptx import Presentation
 
     # Import here other pptx packages you need, but do not import other packages that are not allowed.
@@ -168,6 +169,7 @@ Template structure:
 ```python
 # Allowed packages
 import numpy as np
+import os
 from openpyxl import Workbook
 
 # Import here other xlsx packages you need, but do not import other packages that are not allowed.
@@ -259,6 +261,7 @@ Template structure:
 def word():
     # Allowed packages
     import numpy as np
+    import os
     from docx import Document
 
     # Import here other docx packages you need, but do not import other packages that are not allowed.
@@ -347,11 +350,12 @@ Template structure:
 ```python
 # Allowed packages
 import numpy as np
+import os
 import pypandoc
 
 # Import here other md packages you need, but do not import other packages that are not allowed.
 
-# Path to save the PowerPoint file, previously defined in the server.py file
+# Path to save the Markdown file, previously defined in the server.py file
 MD_PATH = md_path # Do not modify this line, it is defined in the server.py file
 
 def markdown():
