@@ -75,6 +75,12 @@ Your MCPO (MCP orchestration) config must include an entry for this MCP, for exa
 
 ## Example
 
-This README file was generated using the GenFiles MCP server, with GPT5-mini.
+This README file was generated using the GenFiles MCP server, with GPT5-mini and Open WebUI v0.6.21
 
-![server](img/example.png)
+<div style="text-align: center;">
+
+  ![server](img/example2.png)
+
+</div>
+
+> You can find the prompt and result in the example folder.

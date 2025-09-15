@@ -4,6 +4,11 @@ FROM python:3.13-slim-bookworm
 # Copy the UV binary from an external container to the /bin directory
 COPY --from=ghcr.io/astral-sh/uv:0.7.14 /uv /uvx /bin/
 
+# Install system dependencies including pandoc
+RUN apt-get update && apt-get install -y \
+    pandoc \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set the working directory inside the container
 WORKDIR /app
 
