@@ -3,15 +3,17 @@ from json import dumps
 from os import getenv, makedirs
 from os.path import exists
 from shutil import rmtree
-from typing import Annotated, Literal
+from typing import Annotated, Literal, List, Tuple
 from enum import Enum
 from uuid import uuid4
 from pathlib import Path
+from io import BytesIO
 
 # Third-party libraries
 from pydantic import Field
-from requests import post
+from requests import post, get
 from mcp.server.fastmcp import FastMCP
+from docx import Document
 
 # from dotenv import load_dotenv
 # load_dotenv()
@@ -61,10 +63,36 @@ def upload_file(url: str, token: str, file_path: str, filename:str, file_type:st
             ensure_ascii=False
         )
 
+# helpers downloading files in memory
+def download_file(url: str, token: str, file_id: str) -> BytesIO:
+    """
+    Download a file from the specified URL with the provided token and file ID.
+    Args:
+        url (str): The base URL from which the file will be downloaded.
+        token (str): The authorization token for the request.
+        file_id (str): The ID of the file to be downloaded.
+    """
+    # Ensure the URL ends with '/api/v1/files/'
+    url = f'{url}/api/v1/files/{file_id}/content'
+
+    # Prepare headers and files for the request
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/json'
+    }
+    # Send the GET request
+    response = get(url, headers=headers)
+
+    if response.status_code != 200:
+       return {"error":{"message": f'Error downloading the file: {response.status_code}'}}
+    else:
+        return BytesIO(response._content)
+    
+
 mcp = FastMCP(
     name="GenFilesMCP",
     instructions=
-        "Generates PowerPoint, Excel, Word or Markdown files from user requests. Each tool returns a markdown hyperlink for downloading the generated file. Use the specific tools for each file type: generate_powerpoint, generate_excel, generate_word, or generate_markdown.",
+        "Generates PowerPoint, Excel, Word or Markdown files from user requests. Each tool returns a markdown hyperlink for downloading the generated file. Use the specific tools for each file type: generate_powerpoint, generate_excel, generate_word, or generate_markdown. For reviewing existing files, use full_context_docx to analyze structure and review_docx to add comments.",
     port=PORT,
     host="0.0.0.0"
 )
@@ -428,6 +456,169 @@ def generate_markdown(
             indent=4, 
             ensure_ascii=False
         )
+    
+@mcp.tool(
+    name="full_context_docx",
+    title="Return the structure of a docx document",
+    description="""Return the index, style and text of each element in a docx document. This includes paragraphs, headings, tables, images, and other components. The output is a JSON object that provides a detailed representation of the document's structure and content.
+    The Agent will use this tool to understand the content and structure of the document before perform corrections (spelling, grammar, style suggestions, idea enhancements). Agent have to identify the index of each element to be able to add comments in the review_docx tool."""
+)
+def full_context_docx(
+    file_id: Annotated[
+        str, 
+        Field(description="ID of the existing docx file to analyze (from a previous chat upload).")
+    ],
+    file_name: Annotated[
+        str, 
+        Field(description="The name of the original docx file")
+    ]
+) -> dict:
+    """
+    Return the structure of a docx document including index, style, and text of each element.
+    Returns:
+        dict: A JSON object with the structure of the document.
+    """
+    try:
+        # Download in memory the docx file using the download_file helper
+        docx_file = download_file(
+            url=URL, 
+            token=TOKEN, 
+            file_id=file_id
+        )
+
+        if isinstance(docx_file, dict) and "error" in docx_file:
+            return dumps(
+                docx_file,
+                indent=4,
+                ensure_ascii=False
+            )
+        else:
+            # Instantiate a Document object from the in-memory file
+            doc = Document(docx_file)
+            
+            # Structure to return
+            text_body = {
+                "file_name": file_name,
+                "file_id": file_id,
+                "body": []
+            }
+
+            # list to store different parts of the document
+            parts = []
+
+            for idx, parts in enumerate(doc.paragraphs):
+                # text of the paragraph
+                text = parts.text.strip()
+
+                if not text:
+                    # skip empty paragraphs
+                    continue  
+
+                # style of the paragraph
+                style = parts.style.name  
+                text_body["body"].append({
+                    "index": idx,
+                    "style": style ,  # style.name
+                    "text": text  # text
+                })
+
+            return dumps(
+                text_body,
+                indent=4,
+                ensure_ascii=False
+            )
+    except Exception as e:
+        return dumps(
+            {
+                "error": {
+                    "message": str(e)
+                }
+            }, 
+            indent=4, 
+            ensure_ascii=False
+        )
+
+@mcp.tool(
+    name="review_docx",
+    title="Review and comment on docx document",
+    description="""Review an existing docx document, perform corrections (spelling, grammar, style suggestions, idea enhancements), and add comments to cells. Returns a markdown hyperlink for downloading the reviewed file."""
+)
+def review_docx(
+    file_id: Annotated[
+        str, 
+        Field(description="ID of the existing docx file to review (from a previous chat upload).")
+    ],
+    file_name: Annotated[
+        str, 
+        Field(description="The name of the original docx file")
+    ],
+    review_comments: Annotated[
+        List[Tuple[int, str]], 
+        Field(description="List of tuples where each tuple contains: (index: int - the index of the docx document element to comment on, comment: str - the review comment, idea enhancements, suggestions or correction text).")
+    ]
+) -> dict:
+    """
+    Review an existing docx document and add comments to specified elements.
+    Returns:
+        dict: Contains 'file_path_download' with a markdown hyperlink for downloading the reviewed docx file.
+              Format: "[Download {filename}.md](/api/v1/files/{id}/content)"
+    """
+    # user folder
+    if not exists('/app/temp'):
+        makedirs('/app/temp')
+    try:
+        
+        # Download the existing docx file
+        docx_file = download_file(URL, TOKEN, file_id)
+        if isinstance(docx_file, dict) and "error" in docx_file:
+            return dumps(docx_file, indent=4, ensure_ascii=False)
+
+        # Load the document
+        doc = Document(docx_file)
+
+        # Add comments to specified paragraphs
+        paragraphs = list(doc.paragraphs)  # Get list of paragraphs
+        for index, comment_text in review_comments:
+            if 0 <= index < len(paragraphs):
+                para = paragraphs[index]
+                if para.runs:  # Ensure there are runs to comment on
+                    # Add comment to the first run of the paragraph
+                    doc.add_comment(
+                        runs=[para.runs[0]],
+                        text=comment_text,
+                        author="AI Reviewer",
+                        initials="AI"
+                    )
+
+        # Save the reviewed file
+        reviewed_path = f'/app/temp/{Path(file_name).stem}_reviewed_{uuid4()}.docx'
+        doc.save(reviewed_path)
+
+        # Upload the reviewed docx file
+        response = upload_file(
+            url=URL, 
+            token=TOKEN, 
+            file_path=reviewed_path,
+            filename=f"{Path(file_name).stem}_reviewed",
+            file_type="docx"
+        )
+
+        # Remove temp file
+        rmtree('/app/temp', ignore_errors=True)
+
+        return response
+    
+    except Exception as e:
+        return dumps(
+            {
+                "error": {
+                    "message": str(e)
+                }
+            }, 
+            indent=4, 
+            ensure_ascii=False
+        )
+    
 
 # Initialize and run the server
 if __name__ == "__main__":
