@@ -103,6 +103,29 @@ docker run -d --restart unless-stopped \
   genfilesmcp
 ```
 
+### Option 3: docker compose
+
+1a. If you need to build the image yourself: 
+Clone the repository:
+```bash
+git clone https://github.com/Baronco/GenFilesMCP.git
+cd GenFilesMCP
+```
+1b. If you don't need to build the image yourself, create a docker-compose.yml file with this content:
+```yaml
+services:
+  genfilesmcp:
+    image: ghcr.io/baronco/genfilesmcp:latest
+    container_name: genfilesmcp
+    environment:
+      - ENABLE_CREATE_KNOWLEDGE=false    # true/false
+      - OWUI_URL=http://open-webui:8080  # default name and port for OWUI with docker: http://open-webui:8080
+      - PORT=8015                        # Port used by genfilesmcp
+#    networks:                # open-webui and genfilesmcp must be on the same docker network, depending on your setup, default network is probably fine
+#      - ollama-tools
+```
+
+
 ## Configuration
 
 ### Environment Variables
@@ -119,7 +142,9 @@ The MCP server requires the following environment variables:
 
 **Important:** This version requires **Open Web UI version v0.6.31 or later** for native MCP support. MCPO is no longer supported.
 
-Configure the MCP directly in your Open Web UI "External Tools" settings. Set the type to "MCP Streamable HTTP".
+Configure the MCP directly in your Open Web UI "External Tools" settings. Set the type to "MCP Streamable HTTP" and Auth to "Session".
+
+When using docker-compose set URL to "http://genfilesmcp:8015/mcp"
 
 <div style="text-align: center;">
 
@@ -193,7 +218,7 @@ class Tools:
 
 This version integrates with Open Web UI's knowledge base system:
 
-- **Permission Requirement**: Administrators must enable the "Knowledge Access" permission in Workspace Permissions for default or group user permissions.
+- **Permission Requirement**: Administrators must enable the "Knowledge Access" permission in Workspace Permissions for default or group user permissions: -> Admin Panel -> Users -> Groups -> Default permissisons (or other Group). 
 
 <div style="text-align: center;">
 

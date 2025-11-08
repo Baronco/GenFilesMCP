@@ -1,0 +1,22 @@
+services:
+  genfilesmcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # if you don't need/want to build, comment out the 3 lines above and uncomment line below
+    # currently you need to build for ARM
+#    image: ghcr.io/baronco/genfilesmcp:latest
+    container_name: genfilesmcp
+    environment:
+      - ENABLE_CREATE_KNOWLEDGE=false    # true/false
+      - OWUI_URL=http://open-webui:8080  # default name and port for OWUI with docker: http://open-webui:8080
+      - PORT=8015
+#    networks:                # open-webui and genfilesmcp must be on the same docker network, depending on your setup, default network is probably fine
+#      - ollama-tools
+
+#networks:
+#  ollama-tools:
+#    external: false
+#    driver: bridge
+
+
