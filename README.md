@@ -112,6 +112,12 @@ Clone the repository:
 git clone https://github.com/Baronco/GenFilesMCP.git
 cd GenFilesMCP
 ```
+
+Build the Docker image:
+```bash
+docker build -t genfilesmcp .
+```
+
 1b. If you don't need to build the image yourself, create a docker-compose.yml file with this content:
 ```yaml
 services:
@@ -124,11 +130,6 @@ services:
       - PORT=8015                        # Port used by genfilesmcp
 #    networks:                # open-webui and genfilesmcp must be on the same docker network, depending on your setup, default network is probably fine
 #      - ollama-tools
-```
-
-Build the Docker image:
-```bash
-docker build -t genfilesmcp .
 ```
 
 2. Start
