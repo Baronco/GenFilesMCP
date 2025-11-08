@@ -126,12 +126,12 @@ services:
 #      - ollama-tools
 ```
 
-2. Build the Docker image:
+Build the Docker image:
 ```bash
 docker build -t genfilesmcp .
 ```
 
-3. Start
+2. Start
 ```bash
 docker compose up -d
 ```
