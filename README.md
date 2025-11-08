@@ -107,6 +107,7 @@ docker run -d --restart unless-stopped \
 ### Option 3: docker compose
 
 1a. If you need/want to build the image yourself (e.g. for ARM): 
+
 Clone the repository:
 ```bash
 git clone https://github.com/Baronco/GenFilesMCP.git
@@ -118,7 +119,7 @@ Build the Docker image:
 docker build -t genfilesmcp .
 ```
 
-1b. If you don't need to build the image yourself, create a docker-compose.yml file with this content:
+1b. If you don't need/want to build the image yourself, create a docker-compose.yml file with this content:
 ```yaml
 services:
   genfilesmcp:
