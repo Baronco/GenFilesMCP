@@ -11,6 +11,7 @@ GenFilesMCP is a Model Context Protocol (MCP) server that generates PowerPoint, 
 - [Installation](#installation)
   - [Option 1: Using Pre-built Docker Image (Recommended)](#option-1-using-pre-built-docker-image-recommended)
   - [Option 2: Building from Source](#option-2-building-from-source)
+  - [Option 3: docker compose](#option-3-docker-compose)
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
   - [MCP Configuration in Open Web UI](#mcp-configuration-in-open-web-ui)
@@ -105,7 +106,7 @@ docker run -d --restart unless-stopped \
 
 ### Option 3: docker compose
 
-1a. If you need to build the image yourself: 
+1a. If you need/want to build the image yourself (e.g. for ARM): 
 Clone the repository:
 ```bash
 git clone https://github.com/Baronco/GenFilesMCP.git
@@ -125,6 +126,15 @@ services:
 #      - ollama-tools
 ```
 
+2. Build the Docker image:
+```bash
+docker build -t genfilesmcp .
+```
+
+3. Start
+```bash
+docker compose up -d
+```
 
 ## Configuration
 
