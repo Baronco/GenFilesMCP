@@ -16,12 +16,13 @@ This tool is designed to generate Word documents for reports or academic papers.
 
 Each element in the `document_elements` list must include a `type` field with one of the following values:
 
-- `ParagraphBody`: Used for regular paragraphs. **Do not use this type for headers, lists, tables, images, or equations**, as the backend will fail to generate the document.
-- `ParagraphHeader`: Used for section headers.
-- `ParagraphListItem`: Used for list items. Note that list items do **not support Markdown formatting** for bold or italic text. Do not use this type for equations.
-- `Table`: Used for tables.
-- `Image`: Used for images.
-- `Equation`: Used for equations.
+- `paragraph`: Used for regular paragraphs. Supports inline Markdown emphasis with **bold** and *italic*.
+- `header`: Used for section headers.
+- `list`: Used for numbered or bulleted lists. Use `style: "bullet"` or `style: "numbered"`.
+- `table`: Used for tables.
+- `image`: Used for images.
+- `equation`: Used for equations.
+- `page_break`: Inserts a page break between sections.
 
 The final goal of this tool is to create a well-structured Word document, prioritizing the selection of the best logical order for the document and the correct element types so that the user can obtain a professionally formatted document that is easy to read and ready to be shared or published.
 

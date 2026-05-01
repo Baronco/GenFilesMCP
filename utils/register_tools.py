@@ -3,7 +3,7 @@ from logging import Logger
 from typing import Any
 
 def register_word_tool(
-	mcp: Any,
+	app: Any,
 	logger: Logger,
 	word_template: str,
 	enable_word_element_filling: bool,
@@ -11,17 +11,19 @@ def register_word_tool(
 	generate_word: Callable[..., Any],
 ) -> None:
 	if enable_word_element_filling:
-		mcp.tool(
-			name="generate_word_structured",
-			title="Generate Word",
+		app.post(
+			"/generate_word_structured",
+			summary="Generate Word",
 			description=word_template,
+			operation_id="generate_word_structured",
 		)(generate_word_structured)
-		logger.info("Registered Word tool: generate_word_structured")
+		logger.info("Registered Word endpoint: generate_word_structured")
 		return
 
-	mcp.tool(
-		name="generate_word",
-		title="Generate Word",
+	app.post(
+		"/generate_word",
+		summary="Generate Word",
 		description=word_template,
+		operation_id="generate_word",
 	)(generate_word)
-	logger.info("Registered Word tool: generate_word")
+	logger.info("Registered Word endpoint: generate_word")

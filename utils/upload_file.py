@@ -4,10 +4,11 @@ from utils.logger import get_logger
 from requests import post, get
 from json import dumps
 from io import BytesIO
+from typing import Any
 
 logger = get_logger(__name__)
 
-def upload_file(url: str, token: str, file_data: BytesIO, filename:str, file_type:str) -> dict:
+def upload_file(url: str, token: str, file_data: BytesIO, filename:str, file_type:str) -> tuple[dict, Any]:
     """ 
     Upload a file to the specified URL with the provided token.
     Args:
@@ -17,9 +18,13 @@ def upload_file(url: str, token: str, file_data: BytesIO, filename:str, file_typ
         filename (str): The desired filename for the uploaded file (without extension).
         file_type (str): The file extension/type (e.g., 'pptx', 'xlsx', 'docx', 'md').
     Returns:
-        dict: Contains 'file_path_download' with a markdown hyperlink for downloading the uploaded file.
-              Format: "[Download {filename}.{file_type}](/api/v1/files/{id}/content)"
-              On error: {"error": {"message": "error description"}}
+        tuple: On success, returns a dict with the following keys:
+            - file_path_download: markdown download hyperlink
+            - download_url: direct download URL
+            - file_id: file ID assigned by the server
+            - file_name: base filename without extension
+            - file_type: file extension/type
+        On error, returns a dict with the 'error' key.
     """
     # MIME type mapping
     mime_types = {
@@ -54,7 +59,7 @@ def upload_file(url: str, token: str, file_data: BytesIO, filename:str, file_typ
 
     if response.status_code != 200:
        logger.error(f"=> Error uploading generated file: {response.status_code}, {response.text}")
-       return dumps({"error":{"message": f'Error uploading file: {response.status_code}, {response.text}'}}), response
+       return {"error":{"message": f'Error uploading file: {response.status_code}, {response.text}'}}, response
     elif response.status_code == 200:
 
         file_data = response.json()
@@ -87,11 +92,11 @@ def upload_file(url: str, token: str, file_data: BytesIO, filename:str, file_typ
             raise TimeoutError("File processing timed out")
 
         logger.info(f"=> Generated file uploaded successfully. file id: {file_id}")
-        # response_path_download = f"The file has been generated successfully! Provide to the user the following markdown hyperlink format `[Download {filename}.{file_type}](/api/v1/files/{file_id}/content)`. If you modify this hyperlink users will not be able to download the file."
         response_path_download = f'[Download {filename}.{file_type}](/api/v1/files/{file_id}/content)'
-        return dumps({
+        return {
             "file_path_download": response_path_download,
-            },
-            indent=4,
-            ensure_ascii=False
-        ), response.json()  
+            "download_url": f"/api/v1/files/{file_id}/content",
+            "file_id": file_id,
+            "file_name": filename,
+            "file_type": file_type,
+        }, response.json()  

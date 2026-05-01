@@ -215,37 +215,34 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
         # Detect type using the discriminator first if available
         item_type = item.get("type", None)
         
-        if item_type == "ParagraphHeader" or ("text" in item and "level" in item):  # ParagraphHeader
+        if item_type in ("ParagraphHeader", "header") or ("text" in item and "level" in item):  # ParagraphHeader
             current_paragraph = None  # Reset paragraph
             heading = doc.add_heading(item["text"], level=item.get("level", 2))
-            # if item.get("alignment") == "center":
-            #     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
             heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
             if heading.runs:
                 heading.runs[0].font.name = font
         
-        elif item_type == "ParagraphBody" or (item_type is None and "text" in item and "bold" not in item):  # ParagraphBody
+        elif item_type in ("ParagraphBody", "paragraph") or (item_type is None and "text" in item and "bold" not in item):  # ParagraphBody
             if current_paragraph is None:
                 current_paragraph = doc.add_paragraph()
-                # Set alignment for the paragraph based on the first ParagraphBody
-                # if item.get("alignment") == "center":
-                #     current_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                # elif item.get("alignment") == "justify":
                 current_paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY 
-                # Default is left
-            # Parse text for **bold** and *italic*
             segments = parse_markdown_text(item.get("text", ""))
             for seg in segments:
-                run = current_paragraph.add_run(seg['text'])  # Agregar salto de línea después de cada segmento para mantener formato
+                run = current_paragraph.add_run(seg['text'])
                 run.bold = seg['bold']
                 run.italic = seg['italic']
                 run.font.size = Inches(12 / 72)
                 run.font.name = font
 
-        elif item_type == "ParagraphListItem" or "items" in item:  # ParagraphListItem
+        elif item_type in ("ParagraphListItem", "list") or "items" in item:  # ParagraphListItem
             current_paragraph = None  # Reset paragraph
+            list_style = item.get("list_style") or item.get("style") or "List Bullet"
+            if list_style == "bullet":
+                list_style = "List Bullet"
+            elif list_style == "numbered":
+                list_style = "List Number"
             for it in item["items"]:
-                p = doc.add_paragraph(style='List Bullet' if item.get("list_style") == "List Bullet" else 'List Number')
+                p = doc.add_paragraph(style='List Bullet' if list_style == "List Bullet" else 'List Number')
                 segments = parse_markdown_text(it)
                 for seg in segments:
                     run = p.add_run(seg['text'])
@@ -254,30 +251,32 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
                     run.font.size = Inches(12 / 72)
                     run.font.name = font
         
-        elif item_type == "Table" or "table_headers" in item:  # Table
+        elif item_type in ("Table", "table") or "table_headers" in item or "headers" in item:  # Table
             current_paragraph = None  # Reset paragraph
-            if not item.get("table_headers") or not item.get("table_rows"):
+            table_headers = item.get("table_headers") or item.get("headers")
+            table_rows = item.get("table_rows") or item.get("rows")
+            if not table_headers or not table_rows:
                 raise ValueError("Table must have table_headers and table_rows.")
             caption_text = item.get("caption", f"Table {table_counter}: ")
             if not item.get("caption"):
                 table_counter += 1
             p = doc.add_paragraph(caption_text, style='Caption')
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            table = doc.add_table(rows=1, cols=len(item["table_headers"]))
+            table = doc.add_table(rows=1, cols=len(table_headers))
             table.style = 'Light List Accent 1'
             hdr_cells = table.rows[0].cells
-            for i, hdr in enumerate(item["table_headers"]):
+            for i, hdr in enumerate(table_headers):
                 hdr_cells[i].text = hdr
                 for run in hdr_cells[i].paragraphs[0].runs:
                     run.font.name = font
-            for row_data in item["table_rows"]:
+            for row_data in table_rows:
                 row_cells = table.add_row().cells
                 for i, cell_data in enumerate(row_data):
                     row_cells[i].text = cell_data
                     for run in row_cells[i].paragraphs[0].runs:
                         run.font.name = font
         
-        elif item_type == "Image" or "id" in item:  # Image
+        elif item_type in ("Image", "image") or "id" in item:  # Image
             current_paragraph = None  # Reset paragraph
             try:
                 bearer_token = _get_bearer_token(request)
@@ -299,8 +298,8 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
                 figure_counter += 1
             p = doc.add_paragraph(caption_text, style='Caption')
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        elif item_type == "Equation" or "latex" in item:  # Equation
+
+        elif item_type in ("Equation", "equation") or "latex" in item:  # Equation
             current_paragraph = None  # Reset paragraph
             p = doc.add_paragraph()
             math2docx.add_math(p, item["latex"])
@@ -310,7 +309,11 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
                     equation_counter += 1
                 p_cap = doc.add_paragraph(caption_text, style='Caption')
                 p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
+
+        elif item_type == "page_break":
+            current_paragraph = None
+            doc.add_page_break()
+
         else:
             current_paragraph = None  # Reset for any other item
 
