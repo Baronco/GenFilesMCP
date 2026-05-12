@@ -1,18 +1,16 @@
-# GenFiles MCP Server 🧩
+# GenFiles OpenAPI Server 🧩
 
-GenFiles is an MCP Server that generates PowerPoint, Excel, Word, or Markdown files from user requests and chat context. This server executes Python templates or structured document builders to produce files, uploads them to an Open Web UI (OWUI) endpoint, and can persist them in Open WebUI knowledge collections depending on the selected transport and configuration. Additionally, it supports analyzing and reviewing existing Word documents by extracting their structure and adding comments for corrections, grammar suggestions, or idea enhancements.
+GenFiles is an OpenAPI server that generates PowerPoint, Excel, Word, or Markdown files from user requests and chat context. It executes Python templates or structured YAML document builders to produce files, uploads them to an Open WebUI endpoint, and can persist them in Open WebUI knowledge collections depending on configuration. Additionally, it supports analyzing and reviewing existing Word documents by extracting their structure and adding comments for corrections, grammar suggestions, or idea enhancements.
+
+Requires **Open WebUI >= 0.9.0**.
 
 ## Table of Contents
 
 - [Features](docs/features.md) ✨
-  - Highlights the key capabilities of GenFiles MCP Server.
+  - Highlights the key capabilities of GenFiles.
   - Learn about file generation, OWUI integration, and more.
 - [Installation](docs/installation.md) ⚙️
-  - Two deployment modes:
-    - **MCP HTTP Streamable**: Direct HTTP service.
-    - **MCP Stdio via MCPO**: Integrated with MCPO.
-  - Get the suggested system prompt for your AI Assistant
-  - Get the built-in tool `Chat Context Tool` for retrieving docx files and images uploaded in the chat for use in generation or review.
+  - Docker-based deployment as an OpenAPI external tool for Open WebUI.
   - Step-by-step setup instructions.
 - [Usage Examples](docs/usage.md) 📄
   - See how to generate DOCX, XLSX, PPTX and PDF files.
@@ -20,14 +18,14 @@ GenFiles is an MCP Server that generates PowerPoint, Excel, Word, or Markdown fi
 
 > 🚨 Please follow the installation instructions step by step to avoid errors.
 
-## Quick Start (MCP HTTP Streamable) [Installation Guide](docs/installation.md).
+## Quick Start [Installation Guide](docs/installation.md)
 
 ### Installation
 
-To quickly get started, you can use the pre-built Docker image:
+To quickly get started, use the pre-built Docker image:
 
 ```bash
-docker pull ghcr.io/baronco/genfilesmcp:v0.4.0-alpha.2
+docker pull ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.3
 ```
 
 Run the container:
@@ -36,30 +34,30 @@ Run the container:
 docker run -d --restart unless-stopped -p 8016:8016 \
   -e OWUI_URL="http://host.docker.internal:3000" \
   -e PORT=8016 \
-  -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" \
+  -e REVIEWER_AI_ASSISTANT_NAME="GenFiles" \
   -e ENABLE_CREATE_KNOWLEDGE=false \
-  --name gen_files_mcp \
-  ghcr.io/baronco/genfilesmcp:v0.4.0-alpha.2
+  --name genfiles-openapi \
+  ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.3
 ```
 
 Or copy and paste this one-liner:
 
 ```bash
-docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name gen_files_mcp ghcr.io/baronco/genfilesmcp:v0.4.0-alpha.2
+docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name genfiles-openapi ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.3
 ```
 
 ### Environment Variables
 
-| Variable                     | Description                                                                 | Example                                 |
-|------------------------------|-----------------------------------------------------------------------------|-----------------------------------------|
-| `OWUI_URL`                   | URL of your Open Web UI instance                                            | `http://host.docker.internal:3000`      |
-| `PORT`                       | Port where the MCP Server will listen                                       | `8016`                                  |
-| `MCP_TRANSPORT`              | MCP transport used at startup. Use `streamable-http` for direct HTTP deployments such as Open WebUI external tools, or `stdio` when the server is launched by MCPO or another stdio-capable MCP client. | `streamable-http` |
-| `OWUI_API_KEY`               | API key used only for `stdio` deployments through MCPO, where Open WebUI cannot forward the active user's bearer token through the `Open WebUI -> MCPO -> stdio MCP` chain. Do not use it for direct `streamable-http` deployments. | `sk-017374a....`                                      |
-| `KNOWLEDGE_COLLECTION_NAME`  | Name of the Open WebUI knowledge collection used for generated and reviewed files when `ENABLE_CREATE_KNOWLEDGE=true`. | `My Generated Files`                    |
-| `REVIEWER_AI_ASSISTANT_NAME` | Author name used inside Word comments created by `review_docx`.             | `GenFilesMCP`                           |
-| `ENABLE_CREATE_KNOWLEDGE`    | Controls whether generated or reviewed files are attached to Open WebUI knowledge collections. In direct `streamable-http` mode this is optional. In `stdio` through MCPO it must be `true`. | `false`                                 |
-| `ENABLE_WORD_ELEMENT_FILLING`| Experimental DOCX mode. `false` keeps the code-generation flow; `true` switches to the structured element-based builder. | `false`                                 |
+| Variable                      | Description                                                                                  | Example                            |
+|-------------------------------|----------------------------------------------------------------------------------------------|------------------------------------|
+| `OWUI_URL`                    | URL of your Open WebUI instance                                                              | `http://host.docker.internal:3000` |
+| `PORT`                        | Port where GenFiles will listen                                                              | `8016`                             |
+| `KNOWLEDGE_COLLECTION_NAME`   | Name of the Open WebUI knowledge collection used when `ENABLE_CREATE_KNOWLEDGE=true`         | `My Generated Files`               |
+| `REVIEWER_AI_ASSISTANT_NAME`  | Author name used inside Word comments created by `review_docx`                               | `GenFilesMCP`                      |
+| `ENABLE_CREATE_KNOWLEDGE`     | Whether generated or reviewed files are added to Open WebUI knowledge collections            | `false`                            |
+| `ENABLE_STRUCTURED_YAML_MODE` | Enables YAML-based structured generation for Word and PowerPoint            | `true`                             |
+
+> **Open WebUI requirement:** set `ENABLE_FORWARD_USER_INFO_HEADERS=True` in your Open WebUI environment. This makes Open WebUI forward the active user's bearer token to GenFiles so documents are uploaded and reviewed on behalf of the correct user.
 
 For more detailed installation instructions, see the [Installation Guide](docs/installation.md).
 

@@ -23,4 +23,6 @@ wb.save(XLSX_BUFFER) # Do not modify this line, it is defined in the server.py f
 
 Provide a complete Python script following this template to generate your Excel workbook.
 
-This tool return a markdown hyperlink for download: `[Download {filename}.{ext}](/api/v1/files/{id}/content)`. The path must be immutable; only {id} is dynamic. If the assistant modifies this output, users cannot download generated or reviewed files.
+When generation is successful, the chat UI shows a download button for the generated file.
+
+> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.
