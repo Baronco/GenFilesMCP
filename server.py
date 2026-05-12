@@ -5,7 +5,7 @@ from typing import Annotated, Literal, List, Tuple, Union, Any
 from pydantic import Field
 
 # Third-party libraries
-from fastapi import FastAPI, Request, Body
+from fastapi import FastAPI, Request, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from html import escape
@@ -15,27 +15,33 @@ import uvicorn
 from utils.logger import configure_logging, get_logger
 configure_logging()
 from utils.load_md_templates import load_md_templates
-from utils.register_tools import register_word_tool
+from utils.register_tools import register_powerpoint_tool, register_word_tool
 from utils.argument_descriptions import SERVER_BANNER, MCP_SERVER_NAME, SERVER_VERSION, ARGUMENT_DESCRIPTIONS
 from utils.generate_word_template_body_check import generate_word_template_body_check
 from utils.pydantic_models_endpoints import DocxBodyElements
 from utils.pydantic_models_arguments import Cover, ElementUnion, ReviewComment
+from utils.yaml_docx_parser import parse_yaml_to_docx_body
+
+# borrar luego
+from utils.authorization import _get_bearer_token
+from requests import get
+# borrar luego
 
 # Import tools from the tools directory
-from tools.powerpoint_tool import generate_powerpoint as _generate_powerpoint
+from tools.powerpoint_tool import generate_powerpoint as _generate_powerpoint, generate_powerpoint_structured_yaml as _generate_powerpoint_structured_yaml
 from tools.excel_tool import generate_excel as _generate_excel
 from tools.markdown_tool import generate_markdown as _generate_markdown
 from tools.docx_tool import full_context_docx as _full_context_docx, review_docx as _review_docx, generate_word_from_template as _generate_word_from_template
 from tools.docx_tool import generate_word as _generate_word
 from tools.pdf_tool import generate_pdf as _generate_pdf
 # Parameters
-ENABLE_WORD_ELEMENT_FILLING = getenv('ENABLE_WORD_ELEMENT_FILLING', 'false').lower() == 'true'
+ENABLE_STRUCTURED_YAML_MODE = getenv('ENABLE_STRUCTURED_YAML_MODE', 'false').lower() == 'true'
 OWUI_URL = getenv('OWUI_URL', 'http://localhost:8080')
 PORT = int(getenv('PORT', '8000'))
 OWUI_API_KEY = (getenv('OWUI_API_KEY') or '').strip() or None
 REVIEWER_AI_ASSISTANT_NAME = getenv('REVIEWER_AI_ASSISTANT_NAME', 'GenFilesMCP')
 KNOWLEDGE_COLLECTION_NAME = getenv('KNOWLEDGE_COLLECTION_NAME', 'My Generated Files').strip()
-POWERPOINT_TEMPLATE, EXCEL_TEMPLATE, WORD_TEMPLATE, MARKDOWN_TEMPLATE, PDF_TEMPLATE, MCP_INSTRUCTIONS = load_md_templates(ENABLE_WORD_ELEMENT_FILLING)
+POWERPOINT_TEMPLATE, EXCEL_TEMPLATE, WORD_TEMPLATE, MARKDOWN_TEMPLATE, PDF_TEMPLATE, MCP_INSTRUCTIONS = load_md_templates(ENABLE_STRUCTURED_YAML_MODE)
 ENABLE_CREATE_KNOWLEDGE = getenv('ENABLE_CREATE_KNOWLEDGE', 'true').lower() == 'true'
 
 
@@ -58,8 +64,6 @@ logger = get_logger(MCP_SERVER_NAME)
 
 
 def build_request_context(request: Request) -> dict[str, dict[str, str]]:
-
-
     return {"headers": dict(request.headers)}
 
 
@@ -78,94 +82,125 @@ def render_download_button_html(result: dict) -> HTMLResponse | None:
     safe_url = escape(download_url, quote=True)
     safe_name = escape(file_name)
     safe_type = escape(file_type)
-    display_name = escape(f"{file_name}.{file_type}")
+    if safe_name.lower().endswith(f".{safe_type.lower()}"):
+        safe_download_name = safe_name
+    else:
+        safe_download_name = f"{safe_name}.{safe_type}"
+    display_name = escape(safe_download_name)
 
     html = f"""<!DOCTYPE html>
-<html lang=\"es\">
+<html lang=\"en\">
 <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>Descargar archivo</title>
+    <title>Download file</title>
     <style>
+        * {{ box-sizing: border-box; }}
+        html, body {{ margin: 0; padding: 0; }}
         body {{
-            margin: 0;
-            padding: 24px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #f4f6fb;
+            background: radial-gradient(circle at top, rgba(37, 99, 235, 0.15), transparent 36%),
+                        linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
             color: #111827;
+            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 150px;
+            padding: 24px;
         }}
         .download-card {{
             width: min(100%, 420px);
-            padding: 24px;
-            background: #ffffff;
-            border-radius: 18px;
-            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+            padding: 18px 18px 16px;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(148, 163, 184, 0.20);
+            border-radius: 24px;
+            box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
             text-align: center;
+            backdrop-filter: blur(14px);
         }}
         .download-card h1 {{
-            font-size: 1.1rem;
-            margin-bottom: 18px;
+            font-size: 1.14rem;
+            margin: 0 0 14px;
+            line-height: 1.25;
+            letter-spacing: -0.02em;
         }}
         .download-button {{
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
-            padding: 14px 22px;
-            font-size: 1rem;
-            font-weight: 700;
+            gap: 0.65rem;
+            width: 100%;
+            padding: 10px 16px;
             color: #ffffff;
-            background: #2563eb;
-            border: none;
-            border-radius: 999px;
+            background: linear-gradient(135deg, #2563eb 0%, #4338ca 100%);
+            border-radius: 16px;
             text-decoration: none;
-            transition: transform 0.16s ease, background 0.16s ease;
+            font-weight: 700;
+            font-size: 0.96rem;
+            transition: transform 0.16s ease, box-shadow 0.16s ease;
+            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
         }}
         .download-button:hover {{
-            background: #1d4ed8;
             transform: translateY(-1px);
+            box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
         }}
         .download-button:active {{
             transform: translateY(0);
         }}
-        .download-hint {{
-            margin-top: 14px;
-            color: #6b7280;
-            font-size: 0.92rem;
+        .download-icon {{
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+        }}
+        .file-name {{
+            margin: 12px auto 0;
+            color: #475569;
+            font-size: 0.86rem;
+            line-height: 1.4;
+            word-break: break-word;
+            max-width: 100%;
+            opacity: 0.88;
         }}
     </style>
 </head>
 <body>
-    <div class=\"download-card\">
-        <h1>Archivo generado correctamente</h1>
-        <a class=\"download-button\" href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\" download=\"{safe_name}.{safe_type}\">
-            Descargar {display_name}
+    <main class=\"download-card\">
+        <h1>Your file is ready to download</h1>
+        <a class=\"download-button\" href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\" download=\"{safe_download_name}\" aria-label=\"Download {display_name}\">
+            <span class=\"download-icon\">
+                <svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">
+                    <path d=\"M12 4V16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />
+                    <path d=\"M6 12L12 18L18 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />
+                    <path d=\"M6 20H18\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" />
+                </svg>
+            </span>
+            Download file
         </a>
-        <p class=\"download-hint\">Si el botón no descarga automáticamente, ábrelo en una nueva pestaña.</p>
-    </div>
+        <div class=\"file-name\">{display_name}</div>
+    </main>
     <script>
         function reportHeight() {{
             const h = document.documentElement.scrollHeight;
             parent.postMessage({{ type: 'iframe:height', height: h }}, '*');
         }}
         window.addEventListener('load', reportHeight);
-        new ResizeObserver(reportHeight).observe(document.body);
+        if (typeof ResizeObserver !== 'undefined') {{
+            new ResizeObserver(reportHeight).observe(document.body);
+        }} else {{
+            window.addEventListener('resize', reportHeight);
+        }}
     </script>
 </body>
 </html>"""
 
     return HTMLResponse(content=html, headers={"Content-Disposition": "inline", "Content-Type": "text/html"})
 
-@app.post(
-    "/generate_powerpoint",
-    summary="Generate PowerPoint",
-    description=POWERPOINT_TEMPLATE,
-    operation_id="generate_powerpoint",
-)
+# @app.post(
+#     "/generate_powerpoint",
+#     summary="Generate PowerPoint",
+#     description=POWERPOINT_TEMPLATE,
+#     operation_id="generate_powerpoint",
+# )
 async def generate_powerpoint(
     request: Request,
     python_script: Annotated[str, Body(..., description=ARGUMENT_DESCRIPTIONS["common_args"]["python_script"])],
@@ -194,6 +229,56 @@ async def generate_powerpoint(
     except Exception as e:
         logger.error(f"Error generating PowerPoint presentation: {e}")
         return dumps({"error": "An error occurred while generating the PowerPoint presentation."}, ensure_ascii=False)
+
+# @app.post(
+#     "/generate_powerpoint_structured_yaml",
+#     summary="Generate PowerPoint from YAML",
+#     description=POWERPOINT_TEMPLATE_YAML,
+#     operation_id="generate_powerpoint_structured_yaml",
+# )
+async def generate_powerpoint_structured_yaml(
+    request: Request,
+    file_name: Annotated[
+        str,
+        Body(..., description=ARGUMENT_DESCRIPTIONS["common_args"]["file_name"]),
+    ],
+    document_yaml: Annotated[
+        str,
+        Body(
+            ...,
+            description="Raw YAML text describing the PowerPoint presentation structure including slides, colors and image references."
+        ),
+    ],
+):
+    """Generates a PowerPoint presentation from raw YAML text."""
+    logger.info("Received request to generate PowerPoint presentation from YAML")
+    try:
+        request_context = build_request_context(request)
+        result = _generate_powerpoint_structured_yaml(
+            document_yaml,
+            file_name,
+            request_context,
+            OWUI_URL,
+            ENABLE_CREATE_KNOWLEDGE,
+            KNOWLEDGE_COLLECTION_NAME
+        )
+        download_html = render_download_button_html(result)
+        return download_html if download_html is not None else result
+    except ValueError as e:
+        logger.error(f"YAML validation error generating PowerPoint document: {e}")
+        return dumps({"error": str(e)}, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error generating PowerPoint document from YAML: {e}")
+        return dumps({"error": "An error occurred while generating the PowerPoint document from YAML."}, ensure_ascii=False)
+
+register_powerpoint_tool(
+    app=app,
+    logger=logger,
+    powerpoint_template=POWERPOINT_TEMPLATE,
+    enable_structured_yaml_mode=ENABLE_STRUCTURED_YAML_MODE,
+    generate_powerpoint=generate_powerpoint,
+    generate_powerpoint_structured=generate_powerpoint_structured_yaml,
+)
 
 @app.post(
     "/generate_excel",
@@ -254,27 +339,72 @@ async def generate_markdown(
         logger.error(f"Error generating Markdown document: {e}")
         return dumps({"error": "An error occurred while generating the Markdown document."}, ensure_ascii=False)
 
-async def generate_word_structured(
+# async def generate_word_structured(
+#     request: Request,
+#     document_cover: Annotated[Cover, Body(..., description="This argument defines the cover page of the document. Set page_break to True for generating general reports and False for academic papers. Backend is able to center the cover page content automatically so no need to add extra spaces or new lines.")],
+#     columns_body: Annotated[int, Body(..., description="This argument defines the number of columns in the document body. Set to 1 for single column or 2 for double column layout for academic papers.")],
+#     document_elements: Annotated[List[ElementUnion], Body(..., description="Ordered list of document elements used to build the body. The backend preserves this order as-is. Use top-level objects with a 'type' field: paragraph, header, list, table, image, equation, or page_break.")],
+#     file_name: Annotated[str, Body(..., description=ARGUMENT_DESCRIPTIONS["common_args"]["file_name"])],
+# ):
+#     """Generates a Word document using provided metadata and body elements."""
+#     logger.info("Received request to generate Word document")
+#     try:
+#         # Check the structure of the document body elements
+#         body = DocxBodyElements(document_cover=document_cover, columns_body=columns_body, document_elements=document_elements, file_name=file_name)
+#         all_elements = generate_word_template_body_check(body)
+#         if isinstance(all_elements, dict) and "error" in all_elements:
+#             return dumps(all_elements, ensure_ascii=False)
+       
+#         # headers
+#         request_context = build_request_context(request)
+#         result = _generate_word_from_template(
+#             document_cover,
+#             columns_body,
+#             all_elements,
+#             file_name,
+#             request_context,
+#             OWUI_URL,
+#             ENABLE_CREATE_KNOWLEDGE,
+#             KNOWLEDGE_COLLECTION_NAME
+#         )
+#         download_html = render_download_button_html(result)
+#         return download_html if download_html is not None else result
+#     except Exception as e:
+#         logger.error(f"Error generating Word document: {e}")
+#         return dumps({"error": "An error occurred while generating the Word document."}, ensure_ascii=False)
+
+# @app.post(
+#     "/generate_word_structured_yaml",
+#     summary="Generate Word from YAML",
+#     description=WORD_TEMPLATE_YAML,
+#     operation_id="generate_word_structured_yaml",
+# )
+async def generate_word_structured_yaml(
     request: Request,
-    document_cover: Annotated[Cover, Body(..., description="This argument defines the cover page of the document. Set page_break to True for generating general reports and False for academic papers. Backend is able to center the cover page content automatically so no need to add extra spaces or new lines.")],
-    columns_body: Annotated[int, Body(..., description="This argument defines the number of columns in the document body. Set to 1 for single column or 2 for double column layout for academic papers.")],
-    document_elements: Annotated[List[ElementUnion], Body(..., description="Ordered list of document elements used to build the body. The backend preserves this order as-is. Use top-level objects with a 'type' field: paragraph, header, list, table, image, equation, or page_break.")],
-    file_name: Annotated[str, Body(..., description=ARGUMENT_DESCRIPTIONS["common_args"]["file_name"])],
+    file_name: Annotated[
+        str,
+        Body(..., description=ARGUMENT_DESCRIPTIONS["common_args"]["file_name"]),
+    ],
+    document_yaml: Annotated[
+        str,
+        Body(
+            ...,
+            description="Raw YAML text describing the cover, columns_body, and body elements for the document."
+        ),
+    ],
 ):
-    """Generates a Word document using provided metadata and body elements."""
-    logger.info("Received request to generate Word document")
+    """Generates a Word document from raw YAML text."""
+    logger.info("Received request to generate Word document from YAML")
     try:
-        # Check the structure of the document body elements
-        body = DocxBodyElements(document_cover=document_cover, columns_body=columns_body, document_elements=document_elements, file_name=file_name)
+        body = parse_yaml_to_docx_body(document_yaml, file_name)
         all_elements = generate_word_template_body_check(body)
         if isinstance(all_elements, dict) and "error" in all_elements:
             return dumps(all_elements, ensure_ascii=False)
-       
-        # headers
+
         request_context = build_request_context(request)
         result = _generate_word_from_template(
-            document_cover,
-            columns_body,
+            body.document_cover,
+            body.columns_body,
             all_elements,
             file_name,
             request_context,
@@ -284,9 +414,12 @@ async def generate_word_structured(
         )
         download_html = render_download_button_html(result)
         return download_html if download_html is not None else result
+    except ValueError as e:
+        logger.error(f"YAML validation error generating Word document: {e}")
+        return dumps({"error": str(e)}, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"Error generating Word document: {e}")
-        return dumps({"error": "An error occurred while generating the Word document."}, ensure_ascii=False)
+        logger.error(f"Error generating Word document from YAML: {e}")
+        return dumps({"error": "An error occurred while generating the Word document from YAML."}, ensure_ascii=False)
 
 async def generate_word(
     request: Request,
@@ -321,8 +454,8 @@ register_word_tool(
     app=app,
     logger=logger,
     word_template=WORD_TEMPLATE,
-    enable_word_element_filling=ENABLE_WORD_ELEMENT_FILLING,
-    generate_word_structured=generate_word_structured,
+    enable_structured_yaml_mode=ENABLE_STRUCTURED_YAML_MODE,
+    generate_word_structured=generate_word_structured_yaml,
     generate_word=generate_word,
 )
 
@@ -410,6 +543,101 @@ async def review_docx(
     except Exception as e:
         logger.error(f"Error reviewing DOCX document: {e}")
         return dumps({"error": "An error occurred while reviewing the DOCX document."}, ensure_ascii=False)
+
+
+def extract_files_from_chat(chat_data):
+    files = []
+    history = chat_data.get("chat", {}).get("history", {})
+    messages = history.get("messages", {})
+
+    for message_id, message in messages.items():
+        message_files = message.get("files", [])
+        for file_info in message_files:
+            files.append({
+                # "message_id": message_id,
+                "file_id": file_info.get("id"),
+                "name": file_info.get("name"),
+                # "type": file_info.get("type"),
+                # "url": file_info.get("url"),
+                # "content_type": file_info.get("content_type")
+            })
+
+    return files
+
+
+@app.get(
+        "/fetch_uploaded_chat_file_ids",
+        summary="Get Chat Attachments",
+        description="Fetch uploaded chat file IDs for context-aware processing: use file IDs for Word review and image IDs for PDF/PPTX/DOCX generation.",
+        operation_id="fetch_uploaded_chat_file_ids",
+)
+async def fetch_uploaded_chat_file_ids(
+    request: Request
+):
+    # headers
+    request_context = build_request_context(request)
+
+    attachments = _get_bearer_token(request_context, chat_headers=True)
+    if not isinstance(attachments, dict):
+        logger.error("Chat headers were not found or could not be parsed from the request.")
+        return dumps({"error": "Unable to retrieve chat headers from the request."}, ensure_ascii=False)
+
+    auth_header = attachments.get('authorization') or attachments.get('Authorization')
+    chat_id = attachments.get('x-openwebui-chat-id') or attachments.get('X-Open-WebUI-Chat-Id')
+
+    # logger.info(f"Bearer token (if any): {auth_header}")
+    # logger.info(f"Chat id: {chat_id}")
+
+    if not chat_id:
+        logger.error("Missing X-Open-WebUI-Chat-Id header in request.")
+        return dumps({"error": "Missing chat ID header. Ensure Open WebUI forwards chat headers."}, ensure_ascii=False)
+
+    if not auth_header:
+        logger.error("Missing Authorization header for chat API call.")
+        return dumps({"error": "Missing Authorization header. Ensure Open WebUI forwards authorization headers."}, ensure_ascii=False)
+
+    endpoint = f"{OWUI_URL.rstrip('/')}/api/v1/chats/{chat_id}"
+    headers = {
+        'Authorization': auth_header,
+        'Accept': 'application/json'
+    }
+
+    try:
+        response = get(endpoint, headers=headers, timeout=10)
+
+
+        if response.status_code != 200:
+            body_text = response.text.strip()
+            logger.error(
+                "=> Error retrieving chat details. Status code: %s, body: %s",
+                response.status_code,
+                body_text[:1000] if body_text else '<empty>'
+            )
+            return dumps({"error": "An error occurred while retrieving chat attachments."}, ensure_ascii=False)
+
+        try:
+            chat_data = response.json()
+        except ValueError as json_error:
+            logger.error(
+                "=> Failed to parse chat response JSON: %s. Response body: %s",
+                json_error,
+                response.text.strip()[:1000]
+            )
+            return dumps({"error": "Received invalid JSON from Open WebUI chat endpoint."}, ensure_ascii=False)
+
+        files = extract_files_from_chat(chat_data)
+        seen = set()
+        unique_files = []
+        for f in files:
+            fid = f.get("file_id")
+            if fid not in seen:
+                seen.add(fid)
+                unique_files.append(f)
+        logger.info(f"Extracted {len(unique_files)} unique attachments from chat ({len(files)} total).")
+        return dumps({"attachments": unique_files}, ensure_ascii=False)
+    except Exception as e:
+        logger.exception("=> Exception retrieving chat details")
+        return dumps({"error": "An error occurred while retrieving chat attachments."}, ensure_ascii=False)
 
 
 def main() -> None:

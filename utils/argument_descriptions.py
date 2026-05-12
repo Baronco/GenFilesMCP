@@ -21,14 +21,14 @@ try:
         }
     }
 
-    SERVER_VERSION = "v0.4.0-alpha.2⚡"
+    SERVER_VERSION = "v0.4.0-alpha.3⚡"
 
     SERVER_BANNER = f"""
     
-    🛠️ Gen Files MCP  Server
+    🛠️ Gen Files OpenAPI Server
     ⚙️ Processing & Generating Documents
     🔄 Transforming Ideas into Files               
-    You can generate '.md', '.docx', '.pptx', '.xlsx' and '.pdf' 🚀 Powered by AI
+    📝 You can generate '.md', '.docx', '.pptx', '.xlsx' and '.pdf' 🚀 Powered by AI
     🤖 AI-Powered Document Review System (DOCX Only)          
     📝 Intelligent Comments & Suggestions Added               
 
@@ -36,7 +36,7 @@ try:
     🌐 https://github.com/Baronco/GenFilesMCP
     """
 
-    MCP_SERVER_NAME = f"Gen Files MCP Server"
+    MCP_SERVER_NAME = f"Gen Files OpenAPI Server"
 
 except Exception as e:
     logger.error("Error initializing ARGUMENT_DESCRIPTIONS")

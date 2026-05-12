@@ -26,3 +26,5 @@ Each element in the `document_elements` list must include a `type` field with on
 
 The final goal of this tool is to create a well-structured Word document, prioritizing the selection of the best logical order for the document and the correct element types so that the user can obtain a professionally formatted document that is easy to read and ready to be shared or published.
 
+> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.
+

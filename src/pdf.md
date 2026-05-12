@@ -105,3 +105,7 @@ pdf() # It should be always here
 - For images, use `reportlab.platypus.Image(buffer, width=..., height=...)` where `buffer` is an element from `LIST_OF_BYTES_IO_IMAGES`. Call `.seek(0)` on the buffer before passing it.
 - For multi-page documents, flowables automatically paginate — no manual page breaks needed unless you use `PageBreak()`.
 - Avoid importing packages outside of `reportlab` and the Python standard library.
+
+When generation is successful, the chat UI shows a download button for the generated file.
+
+> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.

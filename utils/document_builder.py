@@ -13,6 +13,33 @@ from utils.img_dimensions import img_dimensions
 import re
 from utils.logger import get_logger
 
+
+def _sanitize_latex_for_docx(latex: str) -> str:
+    r"""Fix latex2mathml bugs before passing to math2docx.
+
+    Several LaTeX accent/grouping commands always produce malformed OMML XML
+    (groupChrPr/groupChr tag mismatch). Their safe replacements:
+
+        \bar     -> \overline      (same bar accent, wider variant works)
+        \vec     -> \boldsymbol    (bold = standard vector notation fallback)
+        \check   -> \widecheck     (same check accent, wider variant works)
+        \widetilde -> \tilde       (same tilde, narrower variant works)
+        \overrightarrow -> \boldsymbol
+        \overleftarrow  -> \boldsymbol
+        \overbrace{expr} -> expr   (strip grouping, keep content)
+        \underbrace{expr} -> expr  (strip grouping, keep content)
+    """
+    latex = re.sub(r'\\bar\s*\{', r'\\overline{', latex)
+    latex = re.sub(r'\\vec\s*\{', r'\\boldsymbol{', latex)
+    latex = re.sub(r'\\check\s*\{', r'\\widecheck{', latex)
+    latex = re.sub(r'\\widetilde\s*\{', r'\\tilde{', latex)
+    latex = re.sub(r'\\overrightarrow\s*\{', r'\\boldsymbol{', latex)
+    latex = re.sub(r'\\overleftarrow\s*\{', r'\\boldsymbol{', latex)
+    # Strip \overbrace and \underbrace but preserve their content
+    latex = re.sub(r'\\overbrace\s*\{', r'{', latex)
+    latex = re.sub(r'\\underbrace\s*\{', r'{', latex)
+    return latex
+
 logger = get_logger(__name__)
 
 def vertical_center(metadata_dict: dict, doc: Document) -> int:
@@ -302,7 +329,7 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
         elif item_type in ("Equation", "equation") or "latex" in item:  # Equation
             current_paragraph = None  # Reset paragraph
             p = doc.add_paragraph()
-            math2docx.add_math(p, item["latex"])
+            math2docx.add_math(p, _sanitize_latex_for_docx(item["latex"]))
             if item.get("caption"):
                 caption_text = item.get("caption", f"Equation {equation_counter}: ")
                 if not item.get("caption"):

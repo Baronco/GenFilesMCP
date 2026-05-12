@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "GenFilesMCP"
-version = "0.3.1-alpha.1"
-description = "Add your description here"
+name = "GenFiles"
+version = "0.4.0-alpha.3"
+description = "You can generate '.md', '.docx', '.pptx', '.xlsx' and '.pdf' 🚀 Powered by AI"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
     "fastmcp>=2.14.5",
     "ipykernel>=7.2.0",
     "math2docx>=2.0.3",
+    "matplotlib>=3.10.9",
     "mcp[cli]>=1.25.0",
     "numpy>=2.3.2",
     "openpyxl>=3.1.5",
@@ -22,13 +23,15 @@ dependencies = [
     "python-docx>=1.2.0",
     "python-dotenv>=1.1.1",
     "python-pptx>=1.0.2",
+    "PyYAML>=6.0",
     "reportlab",
     "requests>=2.32.5",
+    "seaborn>=0.13.2",
     "uvicorn>=0.40.0",
 ]
 
 [project.scripts]
-genfilesmcp = "server:main"
+genfiles = "server:main"
 
 [tool.setuptools]
 py-modules = ["server"]
