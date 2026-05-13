@@ -61,5 +61,3 @@ Each element must include a `type` field. Supported element types:
 - Use `page_break: true` in the `cover` section to start body content on a new page.
 
 > When generation is successful, the chat UI shows a download button for the generated file. Do not output or mention download links in the assistant response.
-
-> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.

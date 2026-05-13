@@ -11,8 +11,8 @@ Template structure:
 MD_BUFFER = md_buffer # Do not modify this line, it is defined in the server.py file
 
 # Step 1: Build a Markdown document according to the user's request.
-# Use triple quotes for multi-line strings to avoid syntax errors.
-markdown_content = """# Example Markdown Document here"""
+# Use a plain string literal and escape newlines with \n if needed.
+markdown_content = "# Example Markdown Document here"
 
 # Step 2: Save the content to the buffer (recommended method for simple Markdown)
 # This writes directly to memory (RAM), no disk involved.
@@ -21,6 +21,6 @@ MD_BUFFER.write(markdown_content.encode('utf-8'))
 
 Provide a complete Python script following this template to generate your Markdown document.
 
-When generation is successful, the chat UI shows a download button for the generated file.
+> **Reminder:** keep the buffer assignment line `MD_BUFFER = md_buffer` exactly as shown. If this line is omitted or renamed, the script will fail.
 
-> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.
+When generation is successful, the chat UI shows a download button for the generated file.

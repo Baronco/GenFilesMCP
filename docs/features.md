@@ -16,7 +16,7 @@
 
 ## Status / Compatibility
 
-This release is **v0.4.0-alpha.3** and requires **Open WebUI >= 0.9.0**: [Open WebUI GitHub Repository](https://github.com/open-webui/open-webui)
+This release is **v0.4.0-alpha.4** and requires **Open WebUI >= 0.9.0**: [Open WebUI GitHub Repository](https://github.com/open-webui/open-webui)
 
 The `ENABLE_CREATE_KNOWLEDGE` variable controls whether generated or reviewed files are automatically added to the user's knowledge collection. The base collection name is set with `KNOWLEDGE_COLLECTION_NAME`.
 

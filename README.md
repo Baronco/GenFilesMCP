@@ -25,7 +25,7 @@ Requires **Open WebUI >= 0.9.0**.
 To quickly get started, use the pre-built Docker image:
 
 ```bash
-docker pull ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.3
+docker pull ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.4
 ```
 
 Run the container:
@@ -37,13 +37,13 @@ docker run -d --restart unless-stopped -p 8016:8016 \
   -e REVIEWER_AI_ASSISTANT_NAME="GenFiles" \
   -e ENABLE_CREATE_KNOWLEDGE=false \
   --name genfiles-openapi \
-  ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.3
+  ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.4
 ```
 
 Or copy and paste this one-liner:
 
 ```bash
-docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name genfiles-openapi ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.3
+docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name genfiles-openapi ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.4
 ```
 
 ### Environment Variables
@@ -58,6 +58,8 @@ docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.doc
 | `ENABLE_STRUCTURED_YAML_MODE` | Enables YAML-based structured generation for Word and PowerPoint            | `true`                             |
 
 > **Open WebUI requirement:** set `ENABLE_FORWARD_USER_INFO_HEADERS=True` in your Open WebUI environment. This makes Open WebUI forward the active user's bearer token to GenFiles so documents are uploaded and reviewed on behalf of the correct user.
+
+> 🚨 **Open WebUI users:** if downloads fail in the chat iframe, enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** in Open WebUI.
 
 For more detailed installation instructions, see the [Installation Guide](docs/installation.md).
 

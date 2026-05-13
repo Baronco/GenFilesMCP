@@ -23,6 +23,6 @@ wb.save(XLSX_BUFFER) # Do not modify this line, it is defined in the server.py f
 
 Provide a complete Python script following this template to generate your Excel workbook.
 
-When generation is successful, the chat UI shows a download button for the generated file.
+> **Important:** Keep the buffer assignment line `XLSX_BUFFER = xlsx_buffer` exactly as shown. If you omit or rename it, the script will fail.
 
-> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.
+When generation is successful, the chat UI shows a download button for the generated file.

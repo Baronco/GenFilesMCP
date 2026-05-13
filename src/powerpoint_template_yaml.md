@@ -1,119 +1,62 @@
-Use this tool to create a PowerPoint presentation from a structured YAML definition.
+Generate a PowerPoint from YAML. Top-level keys: `global` and `slides`.
 
-## YAML structure
+## global (required)
+```yaml
+global:
+  accent_color: "#0D9488"   # options: "#0D9488" | "#6D28D9" | "#E05C3A" | "#059669" | "#1E293B" | "#334155" | "#0F4C81"
+  background_color: "#F0FDFA"   # options: "#F0FDFA" | "#FAF5FF" | "#FFF7F5" | "#F0FDF4" | "#F1F5F9" | "#F8FAFC" | "#F7F9FC"
+  font_heading: Calibri
+  font_body: Calibri
+```
+**Pair accent and background by position (same index = one palette). Never default to `#1F6AA5`.**
 
-- `global`: presentation-wide settings
-  - `accent_color`: hex color used for accent areas
-  - `background_color`: hex color used for slide backgrounds
-  - `font_heading`: font name for slide headings
-  - `font_body`: font name for paragraph text
-- `slides`: ordered list of slide objects
-  - each slide must include a `type` field
+## Slide types and fields
 
-## Supported slide types
+| type | required fields | optional fields |
+|---|---|---|
+| `cover` | `title` | `subtitle`, `date`, `notes` |
+| `section_divider` | `title` | `subtitle`, `notes` |
+| `content_text` | `title`, `text` | `header_bar`, `background`, `notes` |
+| `content_image` | `title`, `text`, `image_id` | `header_bar`, `background`, `notes` |
+| `two_column` | `title`, `left{title,text}`, `right{title,text}` | `background`, `notes` |
+| `content_mixed` | `title` + exactly one of `image_id`/`chart`/`table` | `text`, `header_bar`, `background`, `notes` |
+| `content_latex` | `title`, `latex_lines` | `layout`, `text`, `header_bar`, `background`, `notes` |
 
-- `cover`
-- `section_divider`
-- `content_image`
-- `content_text`
-- `content_latex`
-- `two_column`
-- `content_mixed`
+- `header_bar` (default `true`): accent-colored title bar at top.
+- `background`: `accent_color`, `background_color`, or explicit hex `#RRGGBB`.
+- `two_column`: use nested `left:` / `right:` objects — never `left_title`, `right_text`, etc.
+- `content_mixed`: exactly **one** of `image_id`, `chart`, `table`. Text-only → use `content_text`.
+- `content_latex` `layout`: `"split"` (default — text on left, equations image on right; requires `text`) or `"full"` (equations fill the entire slide).
 
-> **LaTeX equations are only rendered in `content_latex` slides.** In all other slide types (`content_text`, `content_image`, `two_column`, `content_mixed`, etc.) the text is inserted as plain text — any LaTeX syntax like `$\frac{1}{2}$` or `\mathbb{R}` will appear literally on the slide with all its special characters. If a slide needs mathematical notation, use `content_latex`.
+## Chart types (for `content_mixed chart:`)
+| type | required fields | optional | description |
+|---|---|---|---|
+| `bar` | `categories`, `values` | `title` | Column bar chart |
+| `line` | `categories`, `values` | `title` | Line chart with area fill |
+| `pie` | `categories`, `values` | `title` | Pie chart |
+| `scatter` | `x`, `y` | `title` | Scatter plot |
+| `histogram` | `values` | `title`, `bins` | Histogram (default 10 bins) |
+| `boxplot` | `series`, `categories` | `title` | Box plot; `series` is a list of value lists (one per box) |
 
-## Slide field reference
+## Emojis in titles
+**Always add a relevant emoji at the start of every `title` field** (all slide types including `cover`, `section_divider`, column titles, etc.). Emojis provide quick visual cues and make the deck more engaging.
+Examples: `📉 Gradient Descent`, `⚙️ Algorithm Variants`, `📊 Comparison of Types`, `🔢 The Mathematics`, `⚠️ Common Pitfalls`.
 
-### cover
-- `title` (required): the main presentation title; can include a leading emoji to reinforce the topic visually
-- `subtitle` (optional)
-- `date` (optional)
-- `notes` (optional): brief presenter notes — concise cues or clarifications visible only to the speaker, not shown on the slide
+## Text formatting (non-latex slides)
+Body text supports inline markdown: `**bold**`, `*italic*`, `***bold+italic***`, `` `code` ``, bullet lists (`- item`), numbered lists (`1. item`).
 
-### section_divider
-- `title` (required): chapter or section name; can include a leading emoji to mark the section visually
-- `subtitle` (optional)
-- `notes` (optional): brief presenter notes — concise cues or clarifications visible only to the speaker, not shown on the slide
+**Never use LaTeX (`$...$`, `\frac`, `\alpha`) outside `content_latex`.** It will appear as raw symbols and garbled text. For any equation or math notation, always use `content_latex`.
+**Never write markdown tables in `text` fields.** Pipe-table syntax (` | col | `) is auto-parsed and rendered as a PPTX table, but the result may be poorly positioned. For tables, always use `content_mixed` with a `table:` block.
 
-### content_image
-- `header_bar` (optional, true/false, default: true): renders an accent-colored bar at the top with the slide title. Set to false only when a full-bleed background or custom layout is needed.
-- `title` (required)
-- `text` (required)
-- `image_id` (required)
-- `background` (optional): `accent_color`, `background_color`, or a hex color like `#1E3A5F`. Text color is chosen automatically for contrast.
-- `notes` (optional): brief presenter notes — concise cues or clarifications visible only to the speaker, not shown on the slide
-
-### content_text
-- `header_bar` (optional, true/false, default: true): renders an accent-colored bar at the top with the slide title. Set to false only when a full-bleed background or custom layout is needed.
-- `title` (required)
-- `text` (required): full slide body text, supports long paragraphs
-- `background` (optional): `accent_color`, `background_color`, or a hex color like `#1E3A5F`. Text color is chosen automatically for contrast.
-- `notes` (optional): brief presenter notes — concise cues or clarifications visible only to the speaker, not shown on the slide
-
-> Use `content_text` when the slide only needs a title and body text with no images, charts, or tables.
-
-### two_column
-- `title` (required)
-- `left` (required): object with `title` and `text`
-- `right` (required): object with `title` and `text`
-- `background` (optional): `accent_color`, `background_color`, or a hex color like `#1E3A5F`. Text color is chosen automatically for contrast.
-- `notes` (optional): brief presenter notes — concise cues or clarifications visible only to the speaker, not shown on the slide
-
-> Important: use nested `left:` and `right:` objects. Do not use `left_title`, `left_text`, `right_title` or `right_text`.
-
-### content_latex
-- `header_bar` (optional, true/false, default: true): renders an accent-colored bar at the top with the slide title. Set to false only when a full-bleed background or custom layout is needed.
-- `title` (required)
-- `text` (optional): brief description shown above the rendered equation block
-- `latex_lines` (required): ordered list of mathtext strings rendered as a stacked image
-  - wrap equations in `$...$`, e.g. `$E = mc^2$`
-  - use `$\bullet\;$` prefix for bullet-style items: `$\bullet\;$ Step 1: $F = ma$`
-  - mix text and math freely: `Kinetic energy: $E_k = \frac{1}{2}mv^2$`
-  - **Always use single-quoted strings (`'...'`) for `latex_lines` items that contain backslashes** — YAML double-quoted strings interpret `\` as an escape character and will fail on `\mathbb`, `\frac`, `\alpha`, etc.
-- `background` (optional): `accent_color`, `background_color`, or a hex color like `#1E3A5F`. Text color is chosen automatically for contrast.
-- `notes` (optional): brief presenter notes
-
-> Use `content_latex` when the slide needs to display mathematical equations, derivation steps, or any content that requires LaTeX math formatting. Equations are rendered via matplotlib mathtext — no external LaTeX installation needed.
-
-### content_mixed
-- `header_bar` (optional, true/false, default: true): renders an accent-colored bar at the top with the slide title. Set to false only when a full-bleed background or custom layout is needed.
-- `title` (required)
-- `text` (optional)
-- exactly one of:
-  - `image_id`
-  - `chart`
-  - `table`
-- `background` (optional): `accent_color`, `background_color`, or a hex color like `#1E3A5F`. Text color is chosen automatically for contrast.
-- `notes` (optional): brief presenter notes — concise cues or clarifications visible only to the speaker, not shown on the slide
-
-> Important: `content_mixed` must include exactly one of `image_id`, `chart`, or `table`.
+## content_latex — latex_lines
+List of mathtext strings rendered as an image via matplotlib:
+- Wrap math in `$...$`: `'$E = mc^2$'`
+- Bullets: `'$\bullet\;$ Step 1'`
+- **Always single-quote** strings with backslashes — double quotes break YAML on `\frac`, `\alpha`, etc.
+- Use ASCII LaTeX only: `\hat{y}` not `ŷ`, `\alpha` not `α`.
+- For a split layout (context text + equations side-by-side): set `layout: split` and provide `text`.
 
 ## Images
+Use `image_id` values from `/fetch_uploaded_chat_file_ids`. The server fetches them automatically — no `images_list` needed.
 
-For slides with images, use `image_id` values inside the YAML. The server automatically extracts these IDs and downloads image data into memory. You do not need to pass a separate `images_list`.
-
-Use `/fetch_uploaded_chat_file_ids` first to get the valid image IDs that are available in the current chat.
-
-## YAML quoting rules
-
-Backslashes in LaTeX (`\mathbb`, `\frac`, `\alpha`, etc.) break YAML double-quoted strings because `\` is treated as an escape character. Follow these rules:
-
-- Use **single quotes** for any string containing backslashes: `subtitle: 'Least squares in $\mathbb{R}^2$'`
-- Use **single quotes** for all `latex_lines` items: `- '$E_k = \frac{1}{2}mv^2$'`
-- If the string itself contains a single quote, escape it by doubling it: `'it'\''s fine'` → `'it''s fine'`
-- Plain (unquoted) strings are safe only when they contain no backslashes or special YAML characters
-- **Always use pure ASCII LaTeX commands — never substitute Unicode characters for LaTeX symbols.** Write `\hat{y}` not `ŷ`, `\bar{x}` not `x̄`, `\alpha` not `α`. Unicode math characters inside LaTeX strings corrupt the YAML before the presentation is built.
-
-## Common validation issues
-
-- Missing `left` or `right` object inside a `two_column` slide
-- Using `left_title` / `left_text` / `right_title` / `right_text` instead of nested objects
-- `content_mixed` without `image_id`, `chart`, or `table`
-- More than one of `image_id`, `chart`, `table` in a `content_mixed` slide
-- Invalid `background` value. Use theme-aware colors like `accent_color` or `background_color`, or provide an explicit color for the document theme. Ensure there is good contrast between background and text.
-- Using `content_mixed` with only text — use `content_text` instead
-- Using double-quoted strings for values that contain LaTeX backslashes — use single quotes instead
-
-> When generation is successful, the chat UI shows a download button for the generated file. Do not output or mention download links in the assistant response.
-
-> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.
+> On success the UI shows a download button. Do not mention download links in the response.

@@ -169,25 +169,33 @@ class ContentTextSlide(BaseModel):
 
 
 class ChartData(BaseModel):
-    type: Literal["bar", "pie", "scatter"]
+    type: Literal["bar", "line", "pie", "scatter", "histogram", "boxplot"]
     title: Optional[str] = None
     categories: Optional[List[str]] = None
     values: Optional[List[float]] = None
     x: Optional[List[float]] = None
     y: Optional[List[float]] = None
+    bins: Optional[int] = None          # histogram: number of bins (default 10)
+    series: Optional[List[List[float]]] = None  # boxplot: one list of values per box
 
     @model_validator(mode="after")
     def validate_chart(self):
-        if self.type in ("bar", "pie"):
+        if self.type in ("bar", "line", "pie"):
             if not self.categories or not self.values:
-                raise ValueError("Bar and pie charts require categories and values.")
+                raise ValueError(f"{self.type} charts require categories and values.")
             if len(self.categories) != len(self.values):
-                raise ValueError("Categories and values must have the same length.")
+                raise ValueError("categories and values must have the same length.")
         elif self.type == "scatter":
             if not self.x or not self.y:
                 raise ValueError("Scatter charts require x and y lists.")
             if len(self.x) != len(self.y):
                 raise ValueError("Scatter x and y lists must have the same length.")
+        elif self.type == "histogram":
+            if not self.values:
+                raise ValueError("Histogram requires values.")
+        elif self.type == "boxplot":
+            if not self.series:
+                raise ValueError("Boxplot requires series (list of value lists).")
         return self
 
 
@@ -217,6 +225,7 @@ class ContentMixedSlide(BaseModel):
 
 class ContentLatexSlide(BaseModel):
     type: Literal["content_latex"] = "content_latex"
+    layout: Literal["full", "split"] = "split"
     header_bar: bool = True
     title: str
     text: Optional[str] = None
@@ -268,18 +277,34 @@ def _resolve_background(config: "GlobalConfig", background: str):
 
 import re as _re
 
-def sanitize_slide_text(text: str) -> str:
-    """Strip markdown formatting and inline LaTeX from plain slide text.
+# Map common LaTeX commands to Unicode equivalents used in sanitize_slide_text
+_LATEX_CMD_TO_UNICODE = {
+    r'\alpha': 'α', r'\beta': 'β', r'\gamma': 'γ', r'\delta': 'δ',
+    r'\epsilon': 'ε', r'\zeta': 'ζ', r'\eta': 'η', r'\theta': 'θ',
+    r'\iota': 'ι', r'\kappa': 'κ', r'\lambda': 'λ', r'\mu': 'μ',
+    r'\nu': 'ν', r'\xi': 'ξ', r'\pi': 'π', r'\rho': 'ρ',
+    r'\sigma': 'σ', r'\tau': 'τ', r'\upsilon': 'υ', r'\phi': 'φ',
+    r'\chi': 'χ', r'\psi': 'ψ', r'\omega': 'ω',
+    r'\Gamma': 'Γ', r'\Delta': 'Δ', r'\Theta': 'Θ', r'\Lambda': 'Λ',
+    r'\Xi': 'Ξ', r'\Pi': 'Π', r'\Sigma': 'Σ', r'\Upsilon': 'Υ',
+    r'\Phi': 'Φ', r'\Psi': 'Ψ', r'\Omega': 'Ω',
+    r'\nabla': '∇', r'\partial': '∂', r'\infty': '∞',
+    r'\cdot': '·', r'\times': '×', r'\sqrt': '√',
+    r'\leq': '≤', r'\geq': '≥', r'\neq': '≠', r'\approx': '≈',
+    r'\in': '∈', r'\notin': '∉', r'\subset': '⊂',
+    r'\sum': 'Σ', r'\prod': 'Π', r'\int': '∫',
+    r'\rightarrow': '→', r'\leftarrow': '←',
+    r'\Rightarrow': '⇒', r'\Leftarrow': '⇐',
+    r'\leftrightarrow': '↔', r'\hat': '', r'\vec': '', r'\bar': '',
+    r'\tilde': '', r'\frac': '',
+}
 
-    Removes:
-    - Inline LaTeX: $...$ and $$...$$ (replaced by the inner raw text without $ delimiters)
-    - Bold/italic markers: **...**, __...__, *...*, _..._
-    - Inline code: `...`
-    - Setext / ATX heading markers (leading #)
-    - Literal escape sequences \\n that models sometimes include
-    """
+def sanitize_slide_text(text: str) -> str:
+    """Strip markdown formatting and inline LaTeX from plain slide text."""
     if not text:
         return text
+    # Literal \n sequences — convert before $ processing so \nabla isn't split
+    text = text.replace('\\n', '\n')
     # $$...$$ block equations — strip delimiters, keep inner content
     text = _re.sub(r'\$\$(.+?)\$\$', lambda m: m.group(1).strip(), text, flags=_re.DOTALL)
     # $...$ inline equations — strip delimiters, keep inner content
@@ -292,10 +317,15 @@ def sanitize_slide_text(text: str) -> str:
     text = _re.sub(r'[*_](.+?)[*_]', r'\1', text)
     # Inline code `...`
     text = _re.sub(r'`(.+?)`', r'\1', text)
-    # ATX headings: leading #+ 
+    # ATX headings: leading #+
     text = _re.sub(r'^#{1,6}\s+', '', text, flags=_re.MULTILINE)
-    # Literal \n sequences models sometimes insert
-    text = text.replace('\\n', '\n')
+    # Replace known LaTeX commands with Unicode equivalents
+    for cmd, uni in _LATEX_CMD_TO_UNICODE.items():
+        text = text.replace(cmd, uni)
+    # \cmd{arg} → arg  (e.g. \hat{y} → y)
+    text = _re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', text)
+    # Remaining bare \commands → strip
+    text = _re.sub(r'\\[a-zA-Z]+', '', text)
     return text
 
 
@@ -307,10 +337,10 @@ _UNSUPPORTED_MATHTEXT = (
 )
 
 def _sanitize_latex_line(line: str) -> str:
-    """Normalize a mathtext line for matplotlib rendering.
+    r"""Normalize a mathtext line for matplotlib rendering.
 
     - Converts $$...$$ delimiters to $...$ (matplotlib uses single-dollar mathtext)
-    - Collapses over-escaped backslashes (\\\\cmd → \\cmd → \cmd in mathtext)
+    - Collapses over-escaped backslashes (\\\\cmd -> \\cmd -> \cmd in mathtext)
     - Removes sizing/spacing commands not supported by matplotlib mathtext
     - Ensures the line has $...$ delimiters if it looks like math
     """
@@ -333,6 +363,142 @@ def set_slide_background(slide, color: RGBColor):
     fill.fore_color.rgb = color
 
 
+def _parse_inline_markdown(text: str):
+    """Parse inline markdown and return list of (segment_text, bold, italic) tuples.
+    Supports: **bold**, *italic*, ***bold+italic***, `code` (treated as bold mono).
+    """
+    import re
+    pattern = re.compile(
+        r'(\*\*\*(?P<bolditalic>.+?)\*\*\*)'
+        r'|(\*\*(?P<bold>.+?)\*\*)'
+        r'|(\*(?P<italic>.+?)\*)'
+        r'|(__(?P<bold2>.+?)__)'
+        r'|(_(?P<italic2>.+?)_)'
+        r'|(`(?P<code>.+?)`)',
+        re.DOTALL,
+    )
+    segments = []
+    last = 0
+    for m in pattern.finditer(text):
+        if m.start() > last:
+            segments.append((text[last:m.start()], False, False))
+        if m.group('bolditalic'):
+            segments.append((m.group('bolditalic'), True, True))
+        elif m.group('bold') or m.group('bold2'):
+            t = m.group('bold') or m.group('bold2')
+            segments.append((t, True, False))
+        elif m.group('italic') or m.group('italic2'):
+            t = m.group('italic') or m.group('italic2')
+            segments.append((t, False, True))
+        elif m.group('code'):
+            segments.append((m.group('code'), True, False))
+        last = m.end()
+    if last < len(text):
+        segments.append((text[last:], False, False))
+    return segments if segments else [(text, False, False)]
+
+
+def _add_run_to_paragraph(p, text, font_name, font_size, bold, italic, color):
+    run = p.add_run()
+    run.text = text
+    run.font.name = font_name
+    run.font.size = Pt(font_size)
+    run.font.bold = bold
+    run.font.italic = italic
+    run.font.color.rgb = color
+    return run
+
+
+def _parse_md_table(table_lines: list) -> Optional['TableData']:
+    """Parse a list of markdown table lines (header, separator, rows) into TableData."""
+    if len(table_lines) < 2:
+        return None
+
+    def split_row(line):
+        return [c.strip() for c in line.strip().strip('|').split('|')]
+
+    headers = split_row(table_lines[0])
+    # table_lines[1] is the separator — skip it
+    rows = [split_row(line) for line in table_lines[2:] if line.strip() and '|' in line]
+    n = len(headers)
+    normalized = []
+    for row in rows:
+        if len(row) < n:
+            row = row + [''] * (n - len(row))
+        elif len(row) > n:
+            row = row[:n]
+        normalized.append(row)
+    if not headers:
+        return None
+    return TableData(headers=headers, rows=normalized)
+
+
+def _split_text_and_tables(text: str):
+    """Split markdown text into segments: ('text', str) or ('table', TableData).
+    Detects standard pipe-table syntax: header row | separator row | data rows.
+    """
+    lines = text.splitlines()
+    segments = []
+    current_lines: list = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Pipe table: current line has | and next line is all dashes/colons/pipes
+        if ('|' in line and line.strip().startswith('|')
+                and i + 1 < len(lines)
+                and _re.match(r'^\s*\|[\s\-:|]+\|\s*$', lines[i + 1])):
+            if current_lines:
+                combined = '\n'.join(current_lines).strip()
+                if combined:
+                    segments.append(('text', combined))
+                current_lines = []
+            table_lines = [line]
+            i += 1
+            while i < len(lines) and '|' in lines[i]:
+                table_lines.append(lines[i])
+                i += 1
+            td = _parse_md_table(table_lines)
+            if td:
+                segments.append(('table', td))
+        else:
+            current_lines.append(line)
+            i += 1
+    if current_lines:
+        combined = '\n'.join(current_lines).strip()
+        if combined:
+            segments.append(('text', combined))
+    return segments if segments else [('text', text)]
+
+
+def _fill_textbox_markdown(tf, text, font_name, font_size, bold, italic, color, align):
+    """Fill an existing text frame with markdown-formatted lines."""
+    lines = text.replace('\\n', '\n').splitlines()
+    first_paragraph = True
+    for line in lines:
+        stripped = line.rstrip()
+        is_bullet = bool(_re.match(r'^(\s*[-*•]\s+|\s*\d+\.\s+)', stripped))
+        if is_bullet:
+            m = _re.match(r'^(\s*)([-*•]|\d+\.)\s+', stripped)
+            if m:
+                stripped = stripped[m.end():]
+                prefix = '• '
+            else:
+                prefix = ''
+        else:
+            prefix = ''
+        if first_paragraph:
+            p = tf.paragraphs[0]
+            first_paragraph = False
+        else:
+            p = tf.add_paragraph()
+        p.alignment = align if not is_bullet else PP_ALIGN.LEFT
+        if is_bullet:
+            p.level = 1
+        for seg_text, seg_bold, seg_italic in _parse_inline_markdown(prefix + stripped):
+            _add_run_to_paragraph(p, seg_text, font_name, font_size,
+                                  bold or seg_bold, italic or seg_italic, color)
+
+
 def add_text_box(
     slide,
     left, top, width, height,
@@ -342,21 +508,70 @@ def add_text_box(
     color=RGBColor(0, 0, 0),
     align=PP_ALIGN.CENTER,
     word_wrap=True,
+    markdown=False,
+    accent_rgb: RGBColor = None,
+    bg_rgb: RGBColor = None,
 ):
-    shape = slide.shapes.add_textbox(left, top, width, height)
-    tf = shape.text_frame
-    tf.word_wrap = word_wrap
-    tf.clear()
-    p = tf.paragraphs[0]
-    p.alignment = align
-    run = p.add_run()
-    run.text = text
-    run.font.name = font_name
-    run.font.size = Pt(font_size)
-    run.font.bold = bold
-    run.font.italic = italic
-    run.font.color.rgb = color
-    return shape
+    """Add a text box. markdown=True parses bold/italic/bullets.
+    Embedded markdown pipe tables are automatically detected and rendered as real PPTX tables.
+    """
+    if not markdown or not text:
+        shape = slide.shapes.add_textbox(left, top, width, height)
+        shape.text_frame.word_wrap = word_wrap
+        shape.text_frame.clear()
+        p = shape.text_frame.paragraphs[0]
+        p.alignment = align
+        _add_run_to_paragraph(p, text or '', font_name, font_size, bold, italic, color)
+        return shape
+
+    # Detect embedded markdown tables
+    segments = _split_text_and_tables(text.replace('\\n', '\n'))
+    has_table = any(seg_type == 'table' for seg_type, _ in segments)
+
+    if not has_table:
+        shape = slide.shapes.add_textbox(left, top, width, height)
+        shape.text_frame.word_wrap = word_wrap
+        shape.text_frame.clear()
+        _fill_textbox_markdown(shape.text_frame, text, font_name, font_size,
+                               bold, italic, color, align)
+        return shape
+
+    # Mixed text + table: stack segments vertically within the given bounds
+    gap = Inches(0.12)
+    n_text = sum(1 for t, _ in segments if t == 'text')
+    tbl_heights = []
+    for seg_type, seg_content in segments:
+        if seg_type == 'table':
+            ideal = (len(seg_content.rows) + 1) * Inches(0.40)
+            tbl_heights.append(min(ideal, Inches(2.5)))
+    total_tbl_h = sum(tbl_heights)
+    total_gaps = (len(segments) - 1) * gap
+    remaining_text_h = max(height - total_tbl_h - total_gaps, Inches(0.4) * max(n_text, 1))
+    text_h_each = int(remaining_text_h // max(n_text, 1))
+
+    y = top
+    tbl_idx = 0
+    last_shape = None
+    for seg_type, seg_content in segments:
+        remaining = top + height - y
+        if remaining < Inches(0.2):
+            break
+        if seg_type == 'text':
+            seg_h = min(text_h_each, remaining)
+            shape = slide.shapes.add_textbox(left, y, width, seg_h)
+            shape.text_frame.word_wrap = word_wrap
+            shape.text_frame.clear()
+            _fill_textbox_markdown(shape.text_frame, seg_content, font_name, font_size,
+                                   bold, italic, color, align)
+            last_shape = shape
+            y += seg_h + gap
+        else:
+            seg_h = min(tbl_heights[tbl_idx], remaining)
+            tbl_idx += 1
+            add_table(slide, seg_content, left, y, width, seg_h, font_name,
+                      accent_rgb=accent_rgb, bg_rgb=bg_rgb, txt_color=color)
+            y += seg_h + gap
+    return last_shape
 
 
 def add_header_bar(slide, prs, title, font_name, accent_rgb, bar_height=Inches(0.8)):
@@ -395,6 +610,8 @@ def place_image_centered(slide, img_source, left, top, max_width, max_height):
     offset_x = int((max_width - final_w) / 2)
     offset_y = int((max_height - final_h) / 2)
 
+    if hasattr(img_source, "seek"):
+        img_source.seek(0)
     picture = slide.shapes.add_picture(
         img_source,
         left + offset_x,
@@ -405,50 +622,162 @@ def place_image_centered(slide, img_source, left, top, max_width, max_height):
     return picture
 
 
-def add_chart(slide, chart_def: ChartData, left, top, width, height):
-    if chart_def.type in ("bar", "pie"):
-        data = CategoryChartData()
-        data.categories = chart_def.categories
-        data.add_series(chart_def.title or "Serie", chart_def.values)
-        chart_type = (
-            XL_CHART_TYPE.COLUMN_CLUSTERED if chart_def.type == "bar"
-            else XL_CHART_TYPE.PIE
+def add_chart(slide, chart_def: ChartData, left, top, width, height,
+              accent_rgb: RGBColor = None, bg_rgb: RGBColor = None,
+              txt_color: RGBColor = None):
+    """Render a styled chart as a matplotlib image and embed it in the slide."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import colorsys
+
+    _accent = accent_rgb or RGBColor(0x0D, 0x94, 0x88)
+    _txt = txt_color or RGBColor(30, 30, 30)
+    acc = (_accent[0] / 255, _accent[1] / 255, _accent[2] / 255)
+    txt = (_txt[0] / 255, _txt[1] / 255, _txt[2] / 255)
+    txt_a = txt + (0.45,)  # semi-transparent for spines/grid
+
+    def _palette(n):
+        h, s, v = colorsys.rgb_to_hsv(*acc)
+        out = []
+        for i in range(n):
+            h2 = (h + i * 0.13) % 1.0
+            s2 = max(0.25, s - i * 0.05)
+            v2 = min(1.0, v + 0.08 * (i % 3 == 2))
+            out.append(colorsys.hsv_to_rgb(h2, s2, v2))
+        return out
+
+    fig_w = max(4.5, width / 914400)
+    fig_h = max(3.0, height / 914400)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color(txt_a)
+    ax.spines['bottom'].set_color(txt_a)
+    ax.tick_params(axis='both', colors=txt, labelsize=8, length=3)
+
+    ct = chart_def.type
+    if ct == 'bar':
+        xs = list(range(len(chart_def.categories)))
+        ax.bar(xs, chart_def.values, color=acc, width=0.55, zorder=3,
+               edgecolor='white', linewidth=0.5)
+        ax.set_xticks(xs)
+        ax.set_xticklabels(chart_def.categories, color=txt, fontsize=8)
+        ax.grid(axis='y', color=txt, alpha=0.12, linewidth=0.7, zorder=0)
+
+    elif ct == 'line':
+        xs = list(range(len(chart_def.categories)))
+        ax.plot(xs, chart_def.values, color=acc, linewidth=2.2,
+                marker='o', markersize=5, markerfacecolor='white',
+                markeredgewidth=2, zorder=3)
+        ax.fill_between(xs, chart_def.values, alpha=0.12, color=acc)
+        ax.set_xticks(xs)
+        ax.set_xticklabels(chart_def.categories, color=txt, fontsize=8)
+        ax.grid(axis='y', color=txt, alpha=0.12, linewidth=0.7, zorder=0)
+
+    elif ct == 'pie':
+        colors = _palette(len(chart_def.values))
+        wedges, texts, autotexts = ax.pie(
+            chart_def.values, labels=chart_def.categories, colors=colors,
+            autopct='%1.0f%%', startangle=140,
+            wedgeprops={'linewidth': 1.5, 'edgecolor': 'white'},
         )
-        slide.shapes.add_chart(chart_type, left, top, width, height, data)
-    else:
-        xy = XyChartData()
-        series = xy.add_series(chart_def.title or "Serie")
-        for xv, yv in zip(chart_def.x, chart_def.y):
-            series.add_data_point(xv, yv)
-        slide.shapes.add_chart(XL_CHART_TYPE.XY_SCATTER, left, top, width, height, xy)
+        for t in texts:
+            t.set_color(txt)
+            t.set_fontsize(8)
+        for at in autotexts:
+            at.set_color('white')
+            at.set_fontsize(8)
+
+    elif ct == 'scatter':
+        ax.scatter(chart_def.x, chart_def.y, color=acc, s=42, alpha=0.85,
+                   edgecolors='white', linewidths=0.5, zorder=3)
+        ax.grid(color=txt, alpha=0.10, linewidth=0.7, zorder=0)
+
+    elif ct == 'histogram':
+        bins = chart_def.bins or 10
+        ax.hist(chart_def.values, bins=bins, color=acc,
+                edgecolor='white', linewidth=0.6, zorder=3)
+        ax.grid(axis='y', color=txt, alpha=0.12, linewidth=0.7, zorder=0)
+
+    elif ct == 'boxplot':
+        series = chart_def.series or []
+        labels = chart_def.categories or [str(i + 1) for i in range(len(series))]
+        bp = ax.boxplot(
+            series, patch_artist=True, labels=labels,
+            medianprops=dict(color='white', linewidth=2),
+            whiskerprops=dict(color=acc, linewidth=1.4),
+            capprops=dict(color=acc, linewidth=1.4),
+            flierprops=dict(marker='o', markerfacecolor=acc, markersize=4,
+                            markeredgecolor='white', markeredgewidth=0.5),
+            boxprops=dict(linewidth=0),
+        )
+        for patch in bp['boxes']:
+            patch.set_facecolor(acc)
+            patch.set_alpha(0.78)
+        ax.grid(axis='y', color=txt, alpha=0.12, linewidth=0.7, zorder=0)
+
+    if chart_def.title and ct != 'pie':
+        ax.set_title(chart_def.title, color=txt, fontsize=10, fontweight='bold', pad=6)
+
+    plt.tight_layout(pad=0.5)
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=150, transparent=True, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    place_image_centered(slide, buf, left, top, width, height)
 
 
-def add_table(slide, table_def: TableData, left, top, width, height, font_name, font_size=12):
+def add_table(slide, table_def: TableData, left, top, width, height, font_name,
+              font_size: int = 11, accent_rgb: RGBColor = None,
+              bg_rgb: RGBColor = None, txt_color: RGBColor = None):
+    """Add a styled table: accent-colored header row, alternating row backgrounds."""
+    _accent = accent_rgb or RGBColor(0x0D, 0x94, 0x88)
+    _bg = bg_rgb or RGBColor(0xF0, 0xFD, 0xFA)
+    _txt = txt_color or RGBColor(30, 30, 30)
+    # Slightly tinted alternate row color
+    alt_rgb = RGBColor(
+        min(255, int(_bg[0] * 0.93 + _accent[0] * 0.07)),
+        min(255, int(_bg[1] * 0.93 + _accent[1] * 0.07)),
+        min(255, int(_bg[2] * 0.93 + _accent[2] * 0.07)),
+    )
     rows = len(table_def.rows) + 1
     cols = len(table_def.headers)
-    row_height = Inches(0.45)
-    ideal_height = rows * row_height
-    actual_height = min(ideal_height, height)
-    tbl = slide.shapes.add_table(rows, cols, left, top, width, actual_height).table
+    row_height = Inches(0.40)
+    actual_height = min(rows * row_height, height)
+    tbl_shape = slide.shapes.add_table(rows, cols, left, top, width, actual_height)
+    tbl = tbl_shape.table
+    # Header row
     for ci, header in enumerate(table_def.headers):
         cell = tbl.cell(0, ci)
-        cell.text = header
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _accent
         p = cell.text_frame.paragraphs[0]
         p.alignment = PP_ALIGN.CENTER
         run = p.runs[0] if p.runs else p.add_run()
+        run.text = str(header)
         run.font.name = font_name
         run.font.size = Pt(font_size)
         run.font.bold = True
-
+        run.font.color.rgb = RGBColor(255, 255, 255)
+    # Data rows
     for ri, row_data in enumerate(table_def.rows, start=1):
-        for ci, cell_text in enumerate(row_data):
+        row_bg = alt_rgb if ri % 2 == 0 else _bg
+        for ci in range(cols):
             cell = tbl.cell(ri, ci)
-            cell.text = str(cell_text)
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = row_bg
+            cell_text = str(row_data[ci]) if ci < len(row_data) else ''
             p = cell.text_frame.paragraphs[0]
             p.alignment = PP_ALIGN.CENTER
             run = p.runs[0] if p.runs else p.add_run()
+            run.text = cell_text
             run.font.name = font_name
             run.font.size = Pt(font_size)
+            run.font.color.rgb = _txt
+    return tbl_shape
 
 
 def add_vertical_separator(slide, x, top, bottom, accent_rgb):
@@ -476,18 +805,17 @@ def _render_latex_to_image(
     txt_rgb: RGBColor,
     dpi: int = 150,
 ) -> BytesIO:
-    """Render a list of mathtext strings to a PNG image in memory."""
+    """Render a list of mathtext strings to a transparent PNG image in memory."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    bg = (bg_rgb[0] / 255, bg_rgb[1] / 255, bg_rgb[2] / 255)
     fg = (txt_rgb[0] / 255, txt_rgb[1] / 255, txt_rgb[2] / 255)
     n = max(len(latex_lines), 1)
     fig_h = max(1.5, n * 0.85)
     fig, ax = plt.subplots(figsize=(10, fig_h))
-    fig.patch.set_facecolor(bg)
-    ax.set_facecolor(bg)
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
@@ -504,7 +832,6 @@ def _render_latex_to_image(
                 horizontalalignment='left',
             )
         except Exception:
-            # Fallback: strip all $ and remaining backslash commands, render as plain text
             plain = _re.sub(r'\$', '', line)
             plain = _re.sub(r'\\[a-zA-Z]+', '', plain)
             plain = plain.strip()
@@ -519,7 +846,7 @@ def _render_latex_to_image(
             )
     buf = BytesIO()
     fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight',
-                facecolor=bg, edgecolor='none')
+                transparent=True, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -535,49 +862,80 @@ def _resolve_image(image_registry: dict, image_id: str):
 
 
 def build_cover(prs, config: GlobalConfig, data: CoverSlide, image_registry: dict):
+    """Clean cover: full accent background, all content vertically and horizontally centered."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     accent = hex_to_rgb(config.accent_color)
     set_slide_background(slide, accent)
-    W = prs.slide_width
-    inner_w = W - MARGIN * 2
+    W, H = prs.slide_width, prs.slide_height
     white = RGBColor(255, 255, 255)
-    block_h = Inches(2.8)
-    block_top = int((prs.slide_height - block_h) / 2)
-    add_text_box(slide, MARGIN, block_top, inner_w, Inches(1.2),
-                 data.title, config.font_heading, 44,
-                 bold=True, color=white)
+    inner_x = MARGIN + Inches(0.4)
+    inner_w = W - (MARGIN + Inches(0.4)) * 2
+
+    # Compute total block height for vertical centering
+    TITLE_H = Inches(1.6)
+    SUB_H = Inches(0.55) if data.subtitle else Inches(0)
+    DATE_H = Inches(0.35) if data.date else Inches(0)
+    GAP_TS = Inches(0.28) if data.subtitle else Inches(0)
+    GAP_SD = Inches(0.18) if data.date else Inches(0)
+    block_h = TITLE_H + GAP_TS + SUB_H + GAP_SD + DATE_H
+    block_top = int((H - block_h) / 2)
+
+    add_text_box(slide, inner_x, block_top, inner_w, TITLE_H,
+                 data.title, config.font_heading, 46,
+                 bold=True, color=white, align=PP_ALIGN.CENTER)
+    y = block_top + TITLE_H + GAP_TS
     if data.subtitle:
-        add_text_box(slide, MARGIN, block_top + Inches(1.3), inner_w, Inches(0.9),
-                     data.subtitle, config.font_body, 24,
-                     italic=True, color=white)
+        add_text_box(slide, inner_x, y, inner_w, SUB_H,
+                     data.subtitle, config.font_body, 22,
+                     italic=True, color=RGBColor(240, 245, 250), align=PP_ALIGN.CENTER)
+        y += SUB_H + GAP_SD
     if data.date:
-        add_text_box(slide, MARGIN, block_top + Inches(2.3), inner_w, Inches(0.6),
-                     data.date, config.font_body, 16, color=white)
+        add_text_box(slide, inner_x, y, inner_w, DATE_H,
+                     data.date, config.font_body, 14,
+                     color=RGBColor(220, 235, 248), align=PP_ALIGN.CENTER)
     _add_notes(slide, data.notes)
 
 
+def _add_accent_title_bar(slide, prs, title, font_name, accent_rgb, txt_color, header_bar, bg_rgb):
+    """Unified title rendering. Returns content_top (Inches position after title area).
+    - header_bar=True: full-width colored bar with white text
+    - header_bar=False: plain title + thin accent underline rule
+    """
+    W = prs.slide_width
+    if header_bar:
+        return add_header_bar(slide, prs, title, font_name, accent_rgb)
+    else:
+        title_top = Inches(0.35)
+        title_h = Inches(0.65)
+        add_text_box(slide, MARGIN, title_top, W - MARGIN * 2, title_h,
+                     title, font_name, 26, bold=True, color=txt_color, align=PP_ALIGN.LEFT)
+        # thin accent underline
+        rule = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, MARGIN, title_top + title_h, W - MARGIN * 2, Inches(0.04))
+        rule.fill.solid()
+        rule.fill.fore_color.rgb = accent_rgb
+        rule.line.fill.background()
+        return title_top + title_h + Inches(0.1)
+
+
 def build_content_image(prs, config: GlobalConfig, data: ContentImageSlide, image_registry: dict):
+    """Left-text / Right-image layout."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg_rgb, txt_color = _resolve_background(config, data.background)
     accent = hex_to_rgb(config.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    if data.header_bar:
-        content_top = add_header_bar(slide, prs, data.title, config.font_heading, accent)
-    else:
-        content_top = MARGIN
-        add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, BAR_H,
-                     data.title, config.font_heading, 28,
-                     bold=True, color=txt_color)
-        content_top += BAR_H + Inches(0.1)
-    text_h = Inches(0.9)
-    add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, text_h,
-                 sanitize_slide_text(data.text), config.font_body, 16, color=txt_color)
-    img_top = content_top + text_h + Inches(0.15)
-    img_area_h = H - img_top - MARGIN
-    img_area_w = W - MARGIN * 2
+    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    content_top += Inches(0.3)
+    content_h = H - content_top - MARGIN
+    gutter = Inches(0.4)
+    text_col_w = int((W - MARGIN * 2 - gutter) * 0.42)
+    img_col_w = int((W - MARGIN * 2 - gutter) * 0.58)
+    add_text_box(slide, MARGIN, content_top, text_col_w, content_h,
+                 sanitize_slide_text(data.text), config.font_body, 15,
+                 color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True)
+    img_x = MARGIN + text_col_w + gutter
     img_source = _resolve_image(image_registry, data.image_id)
-    place_image_centered(slide, img_source, MARGIN, img_top, img_area_w, img_area_h)
+    place_image_centered(slide, img_source, img_x, content_top + Inches(0.1), img_col_w, content_h - Inches(0.2))
     _add_notes(slide, data.notes)
 
 
@@ -587,37 +945,40 @@ def build_two_column(prs, config: GlobalConfig, data: TwoColumnSlide, image_regi
     accent = hex_to_rgb(config.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    add_text_box(slide, MARGIN, MARGIN, W - MARGIN * 2, BAR_H,
-                 data.title, config.font_heading, 28,
-                 bold=True, color=txt_color)
-    content_top = MARGIN + BAR_H + Inches(0.15)
+    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, False, bg_rgb)
+    content_top += Inches(0.3)  # breathing room below main title
     content_h = H - content_top - MARGIN
-    gutter = Inches(0.3)
+    gutter = Inches(0.5)  # wider gap provides visual separation without a line
     col_w = int((W - MARGIN * 2 - gutter) / 2)
-    left_x = MARGIN
-    _build_column(slide, left_x, content_top, col_w, content_h,
-                  sanitize_slide_text(data.left.title), sanitize_slide_text(data.left.text),
+    _build_column(slide, MARGIN, content_top, col_w, content_h,
+                  sanitize_slide_text(data.left.title), data.left.text,
                   config.font_heading, config.font_body, txt_color, accent)
-    sep_x = MARGIN + col_w + int(gutter / 2)
-    add_vertical_separator(slide, sep_x, content_top, content_top + content_h, accent)
-    right_x = MARGIN + col_w + gutter
-    _build_column(slide, right_x, content_top, col_w, content_h,
-                  sanitize_slide_text(data.right.title), sanitize_slide_text(data.right.text),
+    _build_column(slide, MARGIN + col_w + gutter, content_top, col_w, content_h,
+                  sanitize_slide_text(data.right.title), data.right.text,
                   config.font_heading, config.font_body, txt_color, accent)
     _add_notes(slide, data.notes)
 
 
 def _build_column(slide, left, top, width, height,
                   title, text, font_heading, font_body, txt_color, accent):
-    title_h = Inches(0.6)
-    add_text_box(slide, left, top, width, title_h,
-                 title, font_heading, 18,
-                 bold=True, color=txt_color, align=PP_ALIGN.LEFT)
-    body_top = top + title_h + Inches(0.1)
-    body_h = height - title_h - Inches(0.1)
+    """Render a single column: accent-colored header rectangle + body text."""
+    title_h = Inches(0.52)
+    # Accent-colored header rectangle defining the column title zone
+    header_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, title_h)
+    header_rect.fill.solid()
+    header_rect.fill.fore_color.rgb = accent
+    header_rect.line.fill.background()
+    # Title text over the colored header
+    add_text_box(slide, left + Inches(0.1), top + Inches(0.05),
+                 width - Inches(0.12), title_h - Inches(0.08),
+                 title, font_heading, 15,
+                 bold=True, color=RGBColor(255, 255, 255), align=PP_ALIGN.LEFT)
+    # Body text below
+    body_top = top + title_h + Inches(0.22)
+    body_h = height - title_h - Inches(0.22)
     add_text_box(slide, left, body_top, width, body_h,
-                 text, font_body, 14,
-                 color=txt_color, align=PP_ALIGN.JUSTIFY)
+                 sanitize_slide_text(text), font_body, 13,
+                 color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True)
 
 
 def build_content_mixed(prs, config: GlobalConfig, data: ContentMixedSlide, image_registry: dict):
@@ -626,51 +987,50 @@ def build_content_mixed(prs, config: GlobalConfig, data: ContentMixedSlide, imag
     accent = hex_to_rgb(config.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    if data.header_bar:
-        content_top = add_header_bar(slide, prs, data.title, config.font_heading, accent)
-    else:
-        content_top = MARGIN
-        add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, BAR_H,
-                     data.title, config.font_heading, 28,
-                     bold=True, color=txt_color)
-        content_top += BAR_H + Inches(0.1)
-    gutter = Inches(0.3)
+    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    content_top += Inches(0.3)
+    gutter = Inches(0.4)
     col_w = int((W - MARGIN * 2 - gutter) / 2)
     content_h = H - content_top - MARGIN
     add_text_box(slide, MARGIN, content_top, col_w, content_h,
-                 sanitize_slide_text(data.text or ""), config.font_body, 15,
-                 color=txt_color, align=PP_ALIGN.JUSTIFY)
-    sep_x = MARGIN + col_w + int(gutter / 2)
-    add_vertical_separator(slide, sep_x, content_top, content_top + content_h, accent)
+                 sanitize_slide_text(data.text or ''), config.font_body, 15,
+                 color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
+                 accent_rgb=accent, bg_rgb=bg_rgb)
     right_x = MARGIN + col_w + gutter
-    right_w = col_w
-    right_h = content_h
     if data.image_id:
         img_source = _resolve_image(image_registry, data.image_id)
-        place_image_centered(slide, img_source, right_x, content_top, right_w, right_h)
+        place_image_centered(slide, img_source, right_x, content_top, col_w, content_h)
     elif data.chart:
-        add_chart(slide, data.chart, right_x, content_top, right_w, right_h)
+        add_chart(slide, data.chart, right_x, content_top, col_w, content_h,
+                  accent_rgb=accent, bg_rgb=bg_rgb, txt_color=txt_color)
     elif data.table:
-        add_table(slide, data.table, right_x, content_top, right_w, right_h,
-                  config.font_body)
+        add_table(slide, data.table, right_x, content_top + Inches(0.1), col_w,
+                  content_h - Inches(0.1), config.font_body,
+                  accent_rgb=accent, bg_rgb=bg_rgb, txt_color=txt_color)
     _add_notes(slide, data.notes)
 
 
 def build_section_divider(prs, config: GlobalConfig, data: SectionDividerSlide, image_registry: dict):
+    """Section divider: full accent background, centered title and subtitle."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_slide_background(slide, hex_to_rgb(config.accent_color))
+    accent = hex_to_rgb(config.accent_color)
+    set_slide_background(slide, accent)
     W, H = prs.slide_width, prs.slide_height
     inner_w = W - MARGIN * 2
     white = RGBColor(255, 255, 255)
-    block_h = Inches(2.0)
+    near_white = RGBColor(240, 245, 250)
+    TITLE_H = Inches(1.1)
+    SUB_H = Inches(0.65) if data.subtitle else Inches(0)
+    GAP = Inches(0.25) if data.subtitle else Inches(0)
+    block_h = TITLE_H + GAP + SUB_H
     block_top = int((H - block_h) / 2)
-    add_text_box(slide, MARGIN, block_top, inner_w, Inches(1.2),
-                 data.title, config.font_heading, 42,
-                 bold=True, color=white)
+    add_text_box(slide, MARGIN, block_top, inner_w, TITLE_H,
+                 data.title, config.font_heading, 40,
+                 bold=True, color=white, align=PP_ALIGN.CENTER)
     if data.subtitle:
-        add_text_box(slide, MARGIN, block_top + Inches(1.3), inner_w, Inches(0.8),
-                     data.subtitle, config.font_body, 24,
-                     italic=True, color=white)
+        add_text_box(slide, MARGIN, block_top + TITLE_H + GAP, inner_w, SUB_H,
+                     data.subtitle, config.font_body, 22,
+                     italic=True, color=near_white, align=PP_ALIGN.CENTER)
     _add_notes(slide, data.notes)
 
 
@@ -680,18 +1040,13 @@ def build_content_text(prs, config: GlobalConfig, data: ContentTextSlide, image_
     accent = hex_to_rgb(config.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    if data.header_bar:
-        content_top = add_header_bar(slide, prs, data.title, config.font_heading, accent)
-    else:
-        content_top = MARGIN
-        add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, BAR_H,
-                     data.title, config.font_heading, 28,
-                     bold=True, color=txt_color)
-        content_top += BAR_H + Inches(0.1)
+    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    content_top += Inches(0.3)  # breathing room below title
     content_h = H - content_top - MARGIN
     add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, content_h,
-                 sanitize_slide_text(data.text), config.font_body, 16,
-                 color=txt_color, align=PP_ALIGN.JUSTIFY, word_wrap=True)
+                 sanitize_slide_text(data.text), config.font_body, 15,
+                 color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
+                 accent_rgb=accent, bg_rgb=bg_rgb)
     _add_notes(slide, data.notes)
 
 
@@ -701,23 +1056,29 @@ def build_content_latex(prs, config: GlobalConfig, data: ContentLatexSlide, imag
     accent = hex_to_rgb(config.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    if data.header_bar:
-        content_top = add_header_bar(slide, prs, data.title, config.font_heading, accent)
+    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    content_top += Inches(0.3)
+    content_h = H - content_top - MARGIN
+    if data.layout == 'split' and data.text:
+        # Split layout: descriptive text on the left, equations image on the right
+        gutter = Inches(0.4)
+        col_w = int((W - MARGIN * 2 - gutter) / 2)
+        add_text_box(slide, MARGIN, content_top, col_w, content_h,
+                     sanitize_slide_text(data.text), config.font_body, 15,
+                     color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True)
+        latex_img = _render_latex_to_image(data.latex_lines, bg_rgb, txt_color)
+        place_image_centered(slide, latex_img, MARGIN + col_w + gutter, content_top, col_w, content_h)
     else:
-        content_top = MARGIN
-        add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, BAR_H,
-                     data.title, config.font_heading, 28,
-                     bold=True, color=txt_color)
-        content_top += BAR_H + Inches(0.1)
-    if data.text:
-        text_h = Inches(0.7)
-        add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, text_h,
-                     data.text, config.font_body, 15, color=txt_color)
-        content_top += text_h + Inches(0.1)
-    img_area_h = H - content_top - MARGIN
-    img_area_w = W - MARGIN * 2
-    latex_img = _render_latex_to_image(data.latex_lines, bg_rgb, txt_color)
-    place_image_centered(slide, latex_img, MARGIN, content_top, img_area_w, img_area_h)
+        # Full layout: optional intro text above, then full-width equations image
+        if data.text:
+            text_h = Inches(0.65)
+            add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, text_h,
+                         sanitize_slide_text(data.text), config.font_body, 14,
+                         color=txt_color, align=PP_ALIGN.LEFT)
+            content_top += text_h + Inches(0.15)
+            content_h = H - content_top - MARGIN
+        latex_img = _render_latex_to_image(data.latex_lines, bg_rgb, txt_color)
+        place_image_centered(slide, latex_img, MARGIN, content_top, W - MARGIN * 2, content_h)
     _add_notes(slide, data.notes)
 
 

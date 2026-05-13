@@ -106,6 +106,6 @@ pdf() # It should be always here
 - For multi-page documents, flowables automatically paginate — no manual page breaks needed unless you use `PageBreak()`.
 - Avoid importing packages outside of `reportlab` and the Python standard library.
 
-When generation is successful, the chat UI shows a download button for the generated file.
+> **Reminder:** keep the buffer assignment line `PDF_BUFFER = pdf_buffer` exactly as shown. If this line is omitted or renamed, the script will fail.
 
-> **If the user cannot open or download a generated document** from the chat, ask them to enable **Settings → Interface → Artifacts → iframe Sandbox Allow Same Origin** (toggle on). This Open WebUI option is required for document download links inside the chat iframe to work correctly.
+When generation is successful, the chat UI shows a download button for the generated file.

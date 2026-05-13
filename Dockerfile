@@ -4,13 +4,6 @@ FROM python:3.13-slim-bookworm
 # Copy the UV binary from an external container to the /bin directory
 COPY --from=ghcr.io/astral-sh/uv:0.10.4 /uv /uvx /bin/
 
-# Install system dependencies including pandoc
-RUN apt-get update && apt-get install -y \
-    libreoffice \
-    libreoffice-writer \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
-
 # Set the working directory inside the container
 WORKDIR /app
 

@@ -67,6 +67,39 @@ def build_request_context(request: Request) -> dict[str, dict[str, str]]:
     return {"headers": dict(request.headers)}
 
 
+def get_file_icon_svg(file_type: str) -> str:
+    file_type_normalized = (file_type or "").strip().lower()
+    color_map = {
+        "pdf": "#ef4444",
+        "docx": "#60a5fa",
+        "pptx": "#fb923c",
+        "xlsx": "#22c55e",
+        "md": "#7c3aed",
+    }
+    icon_label_map = {
+        "pdf": "PDF",
+        "docx": "DOCX",
+        "pptx": "PPTX",
+        "xlsx": "XLSX",
+        "md": "MD",
+    }
+
+    icon_label = icon_label_map.get(file_type_normalized, "FILE")
+    icon_fill = color_map.get(file_type_normalized, "#6b7280")
+    is_long_label = len(icon_label) > 3
+    font_size = "8.5" if is_long_label else "12"
+    text_attrs = ' textLength="26" lengthAdjust="spacingAndGlyphs"' if is_long_label else ""
+
+    svg = (
+        '<svg viewBox="0 0 42 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" role="img" style="width:32px;height:26px;">'
+        f'<rect x="2" y="2" width="38" height="28" rx="6" fill="{icon_fill}" />'
+        '<path d="M8 7h11l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" fill="#ffffff" fill-opacity="0.12" />'
+        f'<text x="21" y="18" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="{font_size}" font-weight="700" fill="#ffffff"{text_attrs}>{icon_label}</text>'
+        '</svg>'
+    )
+    return svg
+
+
 def render_download_button_html(result: dict) -> HTMLResponse | None:
     """Return an HTMLResponse with a download button for generated file results."""
     if not isinstance(result, dict):
@@ -148,9 +181,11 @@ def render_download_button_html(result: dict) -> HTMLResponse | None:
             transform: translateY(0);
         }}
         .download-icon {{
-            width: 16px;
-            height: 16px;
+            width: 28px;
+            height: 28px;
             display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }}
         .file-name {{
             margin: 12px auto 0;
@@ -167,13 +202,7 @@ def render_download_button_html(result: dict) -> HTMLResponse | None:
     <main class=\"download-card\">
         <h1>Your file is ready to download</h1>
         <a class=\"download-button\" href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\" download=\"{safe_download_name}\" aria-label=\"Download {display_name}\">
-            <span class=\"download-icon\">
-                <svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">
-                    <path d=\"M12 4V16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />
-                    <path d=\"M6 12L12 18L18 12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />
-                    <path d=\"M6 20H18\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" />
-                </svg>
-            </span>
+            <span class="download-icon">{get_file_icon_svg(safe_type)}</span>
             Download file
         </a>
         <div class=\"file-name\">{display_name}</div>
