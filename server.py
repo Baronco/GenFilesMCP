@@ -585,7 +585,7 @@ def extract_files_from_chat(chat_data):
             files.append({
                 # "message_id": message_id,
                 "file_id": file_info.get("id"),
-                "name": file_info.get("name"),
+                # "name": file_info.get("name"),
                 # "type": file_info.get("type"),
                 # "url": file_info.get("url"),
                 # "content_type": file_info.get("content_type")
@@ -662,8 +662,13 @@ async def fetch_uploaded_chat_file_ids(
             if fid not in seen:
                 seen.add(fid)
                 unique_files.append(f)
-        logger.info(f"Extracted {len(unique_files)} unique attachments from chat ({len(files)} total).")
-        return dumps({"attachments": unique_files}, ensure_ascii=False)
+
+        if len(unique_files) > 0:
+            logger.info(f"Extracted {len(unique_files)} unique attachments from chat ({len(files)} total).")
+            return dumps({"files_and_images_id": unique_files}, ensure_ascii=False)
+        else:
+            logger.info("No files or images found in chat.")
+            return dumps({"files_and_images_id": "No files or images found in chat."}, ensure_ascii=False)
     except Exception as e:
         logger.exception("=> Exception retrieving chat details")
         return dumps({"error": "An error occurred while retrieving chat attachments."}, ensure_ascii=False)

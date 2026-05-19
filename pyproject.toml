@@ -26,6 +26,7 @@ dependencies = [
     "PyYAML>=6.0",
     "reportlab",
     "requests>=2.32.5",
+    "scipy>=1.17.1",
     "seaborn>=0.13.2",
     "uvicorn>=0.40.0",
 ]

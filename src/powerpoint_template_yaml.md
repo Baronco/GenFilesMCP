@@ -1,62 +1,96 @@
-Generate a PowerPoint from YAML. Top-level keys: `global` and `slides`.
+Use this tool to create a PowerPoint presentation from a structured YAML definition.
 
-## global (required)
+## Canonical example
+
 ```yaml
 global:
-  accent_color: "#0D9488"   # options: "#0D9488" | "#6D28D9" | "#E05C3A" | "#059669" | "#1E293B" | "#334155" | "#0F4C81"
-  background_color: "#F0FDFA"   # options: "#F0FDFA" | "#FAF5FF" | "#FFF7F5" | "#F0FDF4" | "#F1F5F9" | "#F8FAFC" | "#F7F9FC"
+  accent_color: "#60b1fd"    # also: #6D28D9 #E05C3A #059669 #1E293B #334155 #0F4C81
+  background_color: "#F0FDFA" # also: #FAF5FF #FFF7F5 #F0FDF4 #F1F5F9 #F8FAFC #F7F9FC
   font_heading: Calibri
   font_body: Calibri
+slides:
+  - type: cover
+    title: "🚀 Title"        # always start titles with emoji
+    subtitle: "..."
+    date: "May 2026"
+  - type: section_divider
+    title: "📌 Section"
+  - type: content_text
+    title: "📝 Slide"
+    text: "Line 1\nLine 2"   # text = string + \n, NEVER a yaml list
+    text_style: bullets       # prose | bullets
+    header_bar: true          # true(d) | false
+    background: background_color  # background_color(d) | accent_color | #RRGGBB
+    # not use the same value for background_color and accent_color in one slide.
+  - type: two_column
+    title: "⚖️ Compare"
+    left:  {title: "A", text: "- x\n- y", text_style: bullets}
+    right: {title: "B", text: "- x\n- y"}
+  - type: content_mixed        # exactly one of: chart | table | image_id
+    title: "📊 Chart"
+    text: "optional left text"
+    chart:
+      type: chart              # required
+      kind: bar
+      data: {city: ["A","B"], sales: [10,20]}
+      x: city
+      y: sales
+      palette: Blues
+  - type: content_mixed
+    title: "📋 Table"
+    text: "Summary text on the left"
+    table:
+      headers: ["Col1", "Col2"]
+      rows: [["a","1"], ["b","2"]]  # all values strings
+  - type: content_latex  # Use content_latex for formulas and equations; other slide types are not designed to render LaTeX.
+    title: "📐 Math"
+    latex_lines: # Each line here must be valid LaTeX; invalid lines can cause rendering to fail.
+      # - The backend wraps missing math in $...$, but the line must still be valid mathtext.
+      # - Use \text{...} for any accompanying plain text inside a math expression.
+      # - Do not mix plain text outside of math mode in latex_lines.
+      # - Use \|...\| for norms and valid LaTeX delimiters.
+      # - Avoid environments like \begin{bmatrix} or unsupported matrix syntax.
+      - '$\text{Step 1: define the line model } y = \beta_0 + \beta_1 x$'
+      - '$\text{Step 2: compute the derivative } \frac{dy}{dx} = \beta_1$'
+      - '$\text{Where } y = \beta_0 + \beta_1 x$'
+    layout: full   # full | split (split needs text:)
+    text: "Optional prose (no LaTeX here)"
+  - type: timeline
+    title: "📅 Milestones"
+    active_index: 1           # 0-based, highlights one item
+    items:
+      - {fecha: "Jan 2024", titulo: "Kickoff", emoji: "🚀"}
+      - {fecha: "Mar 2024", titulo: "Design",  emoji: "🎨"}
 ```
-**Pair accent and background by position (same index = one palette). Never default to `#1F6AA5`.**
 
-## Slide types and fields
+> `content_mixed` puts `text` on the left, chart/table/image on the right. Omit `text` to leave left side empty.
+> `timeline` requires ≥2 items. `fecha`, `titulo` are strings; `emoji` is optional.
 
-| type | required fields | optional fields |
+## Chart kinds, required fields & extra params
+
+Universal optional: `title` `xlabel` `ylabel` `palette` `hue` (categorical col; not in `heatmap`/`clustermap`/`pie`; exclude from `columns` in `pair`/`pair_kde`).
+**Palettes:** `viridis` `magma` `Blues` `Greens` `Set1` `Set2` `coolwarm` `RdBu` `tab10`
+
+| kind | required beyond `data` | extra params |
 |---|---|---|
-| `cover` | `title` | `subtitle`, `date`, `notes` |
-| `section_divider` | `title` | `subtitle`, `notes` |
-| `content_text` | `title`, `text` | `header_bar`, `background`, `notes` |
-| `content_image` | `title`, `text`, `image_id` | `header_bar`, `background`, `notes` |
-| `two_column` | `title`, `left{title,text}`, `right{title,text}` | `background`, `notes` |
-| `content_mixed` | `title` + exactly one of `image_id`/`chart`/`table` | `text`, `header_bar`, `background`, `notes` |
-| `content_latex` | `title`, `latex_lines` | `layout`, `text`, `header_bar`, `background`, `notes` |
-
-- `header_bar` (default `true`): accent-colored title bar at top.
-- `background`: `accent_color`, `background_color`, or explicit hex `#RRGGBB`.
-- `two_column`: use nested `left:` / `right:` objects — never `left_title`, `right_text`, etc.
-- `content_mixed`: exactly **one** of `image_id`, `chart`, `table`. Text-only → use `content_text`.
-- `content_latex` `layout`: `"split"` (default — text on left, equations image on right; requires `text`) or `"full"` (equations fill the entire slide).
-
-## Chart types (for `content_mixed chart:`)
-| type | required fields | optional | description |
-|---|---|---|---|
-| `bar` | `categories`, `values` | `title` | Column bar chart |
-| `line` | `categories`, `values` | `title` | Line chart with area fill |
-| `pie` | `categories`, `values` | `title` | Pie chart |
-| `scatter` | `x`, `y` | `title` | Scatter plot |
-| `histogram` | `values` | `title`, `bins` | Histogram (default 10 bins) |
-| `boxplot` | `series`, `categories` | `title` | Box plot; `series` is a list of value lists (one per box) |
-
-## Emojis in titles
-**Always add a relevant emoji at the start of every `title` field** (all slide types including `cover`, `section_divider`, column titles, etc.). Emojis provide quick visual cues and make the deck more engaging.
-Examples: `📉 Gradient Descent`, `⚙️ Algorithm Variants`, `📊 Comparison of Types`, `🔢 The Mathematics`, `⚠️ Common Pitfalls`.
-
-## Text formatting (non-latex slides)
-Body text supports inline markdown: `**bold**`, `*italic*`, `***bold+italic***`, `` `code` ``, bullet lists (`- item`), numbered lists (`1. item`).
-
-**Never use LaTeX (`$...$`, `\frac`, `\alpha`) outside `content_latex`.** It will appear as raw symbols and garbled text. For any equation or math notation, always use `content_latex`.
-**Never write markdown tables in `text` fields.** Pipe-table syntax (` | col | `) is auto-parsed and rendered as a PPTX table, but the result may be poorly positioned. For tables, always use `content_mixed` with a `table:` block.
-
-## content_latex — latex_lines
-List of mathtext strings rendered as an image via matplotlib:
-- Wrap math in `$...$`: `'$E = mc^2$'`
-- Bullets: `'$\bullet\;$ Step 1'`
-- **Always single-quote** strings with backslashes — double quotes break YAML on `\frac`, `\alpha`, etc.
-- Use ASCII LaTeX only: `\hat{y}` not `ŷ`, `\alpha` not `α`.
-- For a split layout (context text + equations side-by-side): set `layout: split` and provide `text`.
-
-## Images
-Use `image_id` values from `/fetch_uploaded_chat_file_ids`. The server fetches them automatically — no `images_list` needed.
-
-> On success the UI shows a download button. Do not mention download links in the response.
+| `hist` | `x` | `bins`(int/"auto") `kde`(bool) `stat`("count"(d)/"density"/"probability") `multiple`("layer"(d)/"dodge"/"stack"/"fill") |
+| `kde` | `x` | `kernel`("gau"(d)/"cos"/"epa"/"biw") `bw_adjust`(float,d=1) `fill`(bool) `y`(col→2D) `multiple`("layer"(d)/"stack"/"fill") — multi-kernel: `kernels:["gau","epa"]` + `bw_adjusts:[0.5,1.0]` |
+| `ecdf` | `x` | `stat`("proportion"(d)/"count"/"percent") |
+| `ridge` | `x` `group` | `overlap`(float,d=0.5) |
+| `count` | `x` | `orient`("v"(d)/"h") `order`(list) |
+| `scatter` | `x` `y` | `style`(col) `alpha`(float) `fit_reg`(bool) |
+| `line` `timeseries` | `x` `y` | `y` can be list→multiple series; `markers`(bool) `ci`(0–99,d=95) `dashes`(bool) |
+| `lmplot` | `x` `y` | `order`(int,d=1) `ci`(int) `scatter`(bool) `line_kws`(dict) |
+| `lmplot_facet` `timeseries_facet` | `x` `y` `col` | `col_wrap`(int,d=3) |
+| `resid` | `x` `y` | `lowess`(bool) |
+| `joint` `joint_hex` `joint_kde` | `x` `y` | `kind`("scatter"(d)/"kde"/"hist"/"hex"/"reg") |
+| `logistic` | `x` `y` | — |
+| `bubble` | `x` `y` `size` | `sizes`([min,max]) `alpha`(float) |
+| `bar` `point` | `x` `y` | `ci`(int) `orient`("v"(d)/"h") `markers`(str/list) `linestyles`(str/list) |
+| `box` `boxen` | `x` `y` | `orient`("v"(d)/"h") `notch`(bool) |
+| `violin` | `x` `y` | `inner`("box"(d)/"quart"/"point"/"stick"/null) `split`(bool,hue=2 groups) |
+| `strip` | `x` `y` | `jitter`(bool) `alpha`(float) |
+| `swarm` | `x` `y` | `size`(float,d=4) |
+| `pie` | `x` `y` | — |
+| `heatmap` `clustermap` | `columns` | `method`("pearson"(d)/"spearman"/"kendall") `mask_upper`(bool) `annot`(bool,d=true) `fmt`(str,d=".2f") `vmin`/`vmax`(float) |
+| `pair` `pair_kde` | `columns` | `diag_kind`("kde"(d)/"hist") `kind`("scatter"(d)/"kde"/"reg") `corner`(bool) |

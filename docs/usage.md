@@ -13,7 +13,7 @@
 
 ### Example 1: Generating a DOCX file
 
-> **Word generation modes:** `ENABLE_WORD_ELEMENT_FILLING=false` is the default mode. In this mode the LLM writes Python code and the backend executes it to generate the DOCX. This default mode supports images uploaded in the chat. `ENABLE_WORD_ELEMENT_FILLING=true` is an experimental structured mode where the model decides the logical order of document elements and their content while the backend builds the DOCX from a template instead of executing generated code. This experimental mode aims to replace code generation over time, but not all models perform well yet. The `Results Summary 📊` benchmark below gives a practical idea of which tested models performed best in this mode.
+> **Word generation modes:** `ENABLE_STRUCTURED_YAML_MODE=false` is the default mode. In this mode the LLM writes Python code and the backend executes it to generate the DOCX. This default mode supports images uploaded in the chat. `ENABLE_STRUCTURED_YAML_MODE=true` is an experimental structured mode where the model decides the logical order of document elements and their content while the backend builds the DOCX from a template instead of executing generated code. This experimental mode aims to replace code generation over time, but not all models perform well yet. The `Results Summary 📊` benchmark below gives a practical idea of which tested models performed best in this mode.
 
 This alpha version includes both DOCX generation approaches. The examples below show the kind of output GenFilesMCP can produce in practice.
 

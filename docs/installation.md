@@ -28,7 +28,7 @@ GenFiles runs as a standalone HTTP OpenAPI service. Open WebUI registers it as a
 Pull the pre-built Docker image from GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.4
+docker pull ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.5
 ```
 
 Run the container:
@@ -40,13 +40,13 @@ docker run -d --restart unless-stopped -p YOUR_PORT:YOUR_PORT \
   -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" \
   -e ENABLE_CREATE_KNOWLEDGE=false \
   --name gen_files_mcp \
-  ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.4
+  ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.5
 ```
 
 One-line command (copy/paste):
 
 ```bash
-docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name gen_files_mcp ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.4
+docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name gen_files_mcp ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.5
 ```
 
 Or use the `:latest` tag:
