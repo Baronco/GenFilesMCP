@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 from pptx import Presentation
 from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.dml import MSO_LINE_DASH_STYLE
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.dml.color import RGBColor
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
@@ -117,11 +117,83 @@ def generate_powerpoint(python_script, file_name, images_list, request, URL, ENA
 
 # ─────────────────────────── PPTX YAML helpers ────────────────────────────
 
-class GlobalConfig(BaseModel):
-    accent_color: str = Field(..., pattern=r"^#?[0-9A-Fa-f]{6}$")
-    background_color: str = Field(..., pattern=r"^#?[0-9A-Fa-f]{6}$")
-    font_heading: str = Field(..., min_length=1)
-    font_body: str = Field(..., min_length=1)
+class Theme(BaseModel):
+    """A named, curated bundle of visual choices applied to an entire presentation.
+    Replaces the four required `global.*` fields the LLM used to set individually.
+    `gradient_accent` is the second stop of the gradient used on "impact" slides
+    (cover, section_divider, stat_highlight) — ordinary content slides never use it."""
+    accent_color: str
+    gradient_accent: str
+    background_color: str
+    font_heading: str
+    font_body: str
+    chart_palette: str
+
+
+def _derive_palette(base_hex: str, mode: str):
+    """Derive a coherent (accent, gradient_accent, background) triple from a SINGLE base
+    hue so every surface in a theme stays in the same color family — accents, the impact
+    gradient, and the slide background are all the same hue at different depths, never a
+    mix of unrelated blues/grays. `mode` selects the contrast structure:
+      - 'light': near-white background, medium accent, mid-bright gradient end
+      - 'dark' : deep clearly-hued background, bright accent, mid-deep gradient end
+        (no theme currently uses 'dark' — backgrounds are all light per user preference —
+         but the structure is kept so a dark theme can be added later)
+    """
+    import colorsys
+    v = base_hex.lstrip("#")
+    r, g, b = int(v[0:2], 16) / 255, int(v[2:4], 16) / 255, int(v[4:6], 16) / 255
+    h, _, s = colorsys.rgb_to_hls(r, g, b)
+    # Tame chroma so palettes read as refined, not glaring: enough color to be clear, capped
+    # so nothing is neon-intense (the user asked for slightly softer, lighter tones).
+    s = min(max(s, 0.42), 0.62)
+
+    def hx(light: float, sat: float) -> str:
+        rr, gg, bb = colorsys.hls_to_rgb(h, max(0.0, min(1.0, light)), max(0.0, min(1.0, sat)))
+        return "#{:02X}{:02X}{:02X}".format(int(rr * 255), int(gg * 255), int(bb * 255))
+
+    if mode == "dark":
+        return hx(0.64, s), hx(0.42, s), hx(0.12, min(s * 0.12, 0.07))
+    # light mode: medium (not deep) accent + lighter gradient end so covers/headers feel
+    # softer; near-white tinted background. Header bars auto-deepen for legible white text.
+    return hx(0.38, s), hx(0.60, s), hx(0.97, min(s * 0.22, 0.22))
+
+
+def _theme_from_base(base_hex: str, mode: str, font: str, chart_palette: str) -> Theme:
+    accent, gradient, bg = _derive_palette(base_hex, mode)
+    return Theme(accent_color=accent, gradient_accent=gradient, background_color=bg,
+                 font_heading=font, font_body=font, chart_palette=chart_palette)
+
+
+# Each theme is generated from ONE base hue (+ light/dark mode) so its accent, impact
+# gradient, and background are guaranteed coherent. Chart palettes are single-hue ramps
+# matching each theme's family, never multi-hue (viridis/tab10/Set2) which broke coherence.
+# Every theme is generated from ONE base hue on a LIGHT (near-white) background — no dark/black
+# backgrounds, per user preference. The names ending in "_dark" are kept for backward
+# compatibility with existing decks, but they now render on a light background like the rest.
+THEME_CATALOG: dict = {
+    "corporate_blue": _theme_from_base("#1E6FD0", "light", "Calibri", "Blues"),
+    "warm_editorial": _theme_from_base("#E0612F", "light", "Calibri", "Oranges"),
+    "minimal_mono":   _theme_from_base("#475569", "light", "Calibri", "Greys"),
+    "vibrant_teal":   _theme_from_base("#0D9488", "light", "Calibri", "Greens"),
+    "royal_purple":   _theme_from_base("#7C3AED", "light", "Calibri", "Purples"),
+    "crimson_report": _theme_from_base("#C2333A", "light", "Calibri", "Reds"),
+    "forest_green":   _theme_from_base("#15803D", "light", "Calibri", "Greens"),
+    "amber_gold":     _theme_from_base("#B7791F", "light", "Calibri", "YlOrBr"),
+    # Formerly dark-background themes — now light too (names kept for compatibility):
+    "modern_dark":    _theme_from_base("#3B82F6", "light", "Calibri", "Blues"),
+    "emerald_dark":   _theme_from_base("#10B981", "light", "Calibri", "Greens"),
+    "graphite_dark":  _theme_from_base("#64748B", "light", "Calibri", "Greys"),
+}
+DEFAULT_THEME = "corporate_blue"
+
+
+class StyleOverride(BaseModel):
+    """Optional, explicit visual choice for a single slide, layered over the active theme.
+    Absent in the common case; every field here takes precedence over the theme default
+    for that one slide only."""
+    background: Optional[BackgroundField] = None
+    header_bar: Optional[bool] = None
 
 
 class CoverSlide(BaseModel):
@@ -134,19 +206,16 @@ class CoverSlide(BaseModel):
 
 class ContentImageSlide(BaseModel):
     type: Literal["content_image"] = "content_image"
-    header_bar: bool = True
     title: str
     text: str
-    text_style: TextStyle = "prose"
     image_id: str
-    background: BackgroundField = "background_color"
+    style_override: Optional[StyleOverride] = None
     notes: Optional[str] = None
 
 
 class TwoColumnSide(BaseModel):
     title: str
     text: str
-    text_style: TextStyle = "prose"
 
 
 class TwoColumnSlide(BaseModel):
@@ -154,7 +223,7 @@ class TwoColumnSlide(BaseModel):
     title: str
     left: TwoColumnSide
     right: TwoColumnSide
-    background: BackgroundField = "background_color"
+    style_override: Optional[StyleOverride] = None
     notes: Optional[str] = None
 
 
@@ -167,69 +236,42 @@ class SectionDividerSlide(BaseModel):
 
 class ContentTextSlide(BaseModel):
     type: Literal["content_text"] = "content_text"
-    header_bar: bool = True
     title: str
     text: str
-    text_style: TextStyle = "prose"
-    background: BackgroundField = "background_color"
+    style_override: Optional[StyleOverride] = None
     notes: Optional[str] = None
 
 
 class ChartData(BaseModel):
-    type: Optional[Literal[
-        "bar", "line", "pie", "scatter", "hist", "histogram", "count",
-        "point", "box", "violin", "strip", "swarm", "bubble",
-        "lmplot", "lmplot_facet", "joint", "joint_hex", "joint_kde",
-        "logistic", "resid", "heatmap", "clustermap", "pair", "pair_kde",
-        "timeseries", "timeseries_facet", "ridge", "boxen", "ecdf", "chart",
-    ]] = None
-    kind: Optional[str] = None
+    """A chart expressed as one of four visualization intents instead of a low-level
+    chart kind. The system maps each intent internally to the appropriate rendering
+    in utils/charts.py and applies the active theme's chart palette automatically."""
+    intent: Literal["comparison", "trend", "distribution", "part_of_whole"]
     title: Optional[str] = None
     categories: Optional[List[str]] = None
     values: Optional[List[float]] = None
-    columns: Optional[List[str]] = None
-    x: Optional[Union[str, List[str]]] = None
-    y: Optional[Union[str, List[str]]] = None
-    size: Optional[str] = None
-    z: Optional[str] = None
-    col: Optional[str] = None
-    col_wrap: Optional[int] = None
-    hue: Optional[Union[str, List[str]]] = None
-    palette: Optional[str] = None
-    xlabel: Optional[str] = None
-    ylabel: Optional[str] = None
-    group: Optional[str] = None
-    bins: Optional[int] = None          # histogram: number of bins (default 10)
-    kernels: Optional[List[str]] = None
-    bw_adjusts: Optional[List[float]] = None
-    line_kws: Optional[dict] = None
-    data: Optional[dict] = None
-    chart_kwargs: Optional[dict] = None
+    x: Optional[List[float]] = None
+    y: Optional[List[float]] = None
 
     @model_validator(mode="after")
     def validate_chart(self):
-        chart_kind = self.kind if self.type == "chart" else self.kind or self.type
-        if not chart_kind:
-            raise ValueError("chart requires a 'type' or 'kind' field.")
-        if self.data is None:
-            if chart_kind in ("bar", "line", "pie"):
-                if not self.categories or not self.values:
-                    raise ValueError(f"{chart_kind} charts require categories and values.")
-                if isinstance(self.categories, list) and isinstance(self.values, list):
-                    if len(self.categories) != len(self.values):
-                        min_len = min(len(self.categories), len(self.values))
-                        self.categories = self.categories[:min_len]
-                        self.values = self.values[:min_len]
-            elif chart_kind == "scatter":
-                if not self.x or not self.y:
-                    raise ValueError("Scatter charts require x and y lists.")
-                if isinstance(self.x, list) and isinstance(self.y, list) and len(self.x) != len(self.y):
-                    min_len = min(len(self.x), len(self.y))
-                    self.x = self.x[:min_len]
-                    self.y = self.y[:min_len]
-            elif chart_kind == "histogram":
-                if not self.values:
-                    raise ValueError("Histogram requires values.")
+        if self.intent in ("comparison", "part_of_whole"):
+            if not self.categories or not self.values:
+                raise ValueError(f"'{self.intent}' charts require 'categories' and 'values'.")
+            if len(self.categories) != len(self.values):
+                min_len = min(len(self.categories), len(self.values))
+                self.categories = self.categories[:min_len]
+                self.values = self.values[:min_len]
+        elif self.intent == "trend":
+            if not self.x or not self.y:
+                raise ValueError("'trend' charts require 'x' and 'y'.")
+            if len(self.x) != len(self.y):
+                min_len = min(len(self.x), len(self.y))
+                self.x = self.x[:min_len]
+                self.y = self.y[:min_len]
+        elif self.intent == "distribution":
+            if not self.values:
+                raise ValueError("'distribution' charts require 'values'.")
         return self
 
 
@@ -240,21 +282,39 @@ class TableData(BaseModel):
 
 class ContentMixedSlide(BaseModel):
     type: Literal["content_mixed"] = "content_mixed"
-    header_bar: bool = True
     title: str
     text: Optional[str] = None
-    text_style: TextStyle = "prose"
     image_id: Optional[str] = None
     chart: Optional[ChartData] = None
     table: Optional[TableData] = None
-    background: BackgroundField = "background_color"
+    style_override: Optional[StyleOverride] = None
     notes: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_contents(self):
         contents = [bool(self.image_id), bool(self.chart), bool(self.table)]
-        if sum(contents) != 1:
-            raise ValueError("content_mixed requires exactly one of: image_id, chart, table.")
+        if sum(contents) > 1:
+            # AI assistants often set both image_id AND chart by mistake.
+            # Keep only one, preferring: chart > table > image_id (richer wins).
+            logger.warning(
+                "content_mixed slide '%s' has %d visual element(s). Keeping only one.",
+                self.title, sum(contents),
+            )
+            if self.chart and self.image_id:
+                logger.warning("  -> Dropped image_id in favour of chart.")
+                self.image_id = None
+            elif self.chart and self.table:
+                logger.warning("  -> Dropped table in favour of chart.")
+                self.table = None
+            elif self.table and self.image_id:
+                logger.warning("  -> Dropped image_id in favour of table.")
+                self.image_id = None
+        elif sum(contents) == 0:
+            # Instead of raising an error, log a warning and set a default
+            logger.warning(
+                "content_mixed slide '%s' has no visual element. Defaulting to text-only.",
+                self.title,
+            )
         return self
 
 
@@ -269,7 +329,13 @@ class TimelineSlide(BaseModel):
     title: str
     items: List[TimelineEvent]
     active_index: Optional[int] = None
-    background: BackgroundField = "background_color"
+    # Two visual styles: "horizontal" (axis across the slide, best for 3-5 events) and
+    # "vertical" (top-to-bottom rail, best for 4-6 longer events). In "vertical" style an
+    # optional `image_id` or `text` renders on the LEFT and shifts the rail to the right.
+    style: Literal["horizontal", "vertical"] = "horizontal"
+    image_id: Optional[str] = None
+    text: Optional[str] = None
+    style_override: Optional[StyleOverride] = None
     notes: Optional[str] = None
 
     @model_validator(mode="after")
@@ -284,10 +350,8 @@ class TimelineSlide(BaseModel):
 class ContentLatexSlide(BaseModel):
     type: Literal["content_latex"] = "content_latex"
     layout: Literal["full", "split"] = "split"
-    header_bar: bool = True
     title: str
     text: Optional[str] = None
-    text_style: TextStyle = "prose"
     latex_lines: List[str] = Field(
         ...,
         description=(
@@ -297,20 +361,41 @@ class ContentLatexSlide(BaseModel):
             "e.g. '$\\bullet\\;$ Step 1: $F = ma$'."
         ),
     )
-    background: BackgroundField = "background_color"
+    image_id: Optional[str] = None
+    style_override: Optional[StyleOverride] = None
+    notes: Optional[str] = None
+
+
+class StatHighlightSlide(BaseModel):
+    """Spotlights a single key figure/metric with the same high-impact gradient/accent
+    treatment as cover and section_divider — for the one number that should land hard."""
+    type: Literal["stat_highlight"] = "stat_highlight"
+    value: str
+    label: str
+    supporting_text: Optional[str] = None
+    style_override: Optional[StyleOverride] = None
     notes: Optional[str] = None
 
 
 Slide = Annotated[
-    CoverSlide | ContentImageSlide | ContentMixedSlide | ContentLatexSlide | ContentTextSlide | TimelineSlide | TwoColumnSlide | SectionDividerSlide,
+    CoverSlide | ContentImageSlide | ContentMixedSlide | ContentLatexSlide | ContentTextSlide | TimelineSlide | TwoColumnSlide | SectionDividerSlide | StatHighlightSlide,
     Field(discriminator="type"),
 ]
 
 
-class PPTXSchema(BaseModel):
-    global_: GlobalConfig = Field(..., alias="global")
+class PresentationDefinition(BaseModel):
+    theme: str = DEFAULT_THEME
     slides: List[Slide]
-    model_config = {"populate_by_name": True}
+
+    @model_validator(mode="after")
+    def validate_theme(self):
+        if self.theme not in THEME_CATALOG:
+            logger.warning(
+                "Unrecognized theme '%s'; falling back to default theme '%s'.",
+                self.theme, DEFAULT_THEME,
+            )
+            self.theme = DEFAULT_THEME
+        return self
 
 
 def hex_to_rgb(value: str) -> RGBColor:
@@ -318,13 +403,13 @@ def hex_to_rgb(value: str) -> RGBColor:
     return RGBColor(int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16))
 
 
-def _resolve_background(config: "GlobalConfig", background: str):
+def _resolve_background(theme: "Theme", background: str):
     """Resolve background token or hex to (bg_rgb, txt_color).
     Text color is chosen automatically for contrast via relative luminance."""
     if background == "accent_color":
-        bg_hex = config.accent_color
+        bg_hex = theme.accent_color
     elif background == "background_color":
-        bg_hex = config.background_color
+        bg_hex = theme.background_color
     else:
         bg_hex = background
     bg_rgb = hex_to_rgb(bg_hex)
@@ -334,7 +419,124 @@ def _resolve_background(config: "GlobalConfig", background: str):
     return bg_rgb, txt_color
 
 
+def _resolve_slide_background(theme: "Theme", override: Optional[StyleOverride]):
+    """Resolve a slide's effective background, honoring an optional style_override."""
+    token = override.background if (override and override.background) else "background_color"
+    return _resolve_background(theme, token)
+
+
+def _resolve_header_bar(override: Optional[StyleOverride], default: bool = True) -> bool:
+    """Resolve a slide's effective header_bar flag, honoring an optional style_override."""
+    if override is not None and override.header_bar is not None:
+        return override.header_bar
+    return default
+
+
 import re as _re
+
+# ─────────────────── YAML pre-processor for AI-generated YAML ───────────────────
+# AI assistants often produce subtly invalid YAML. This function repairs the
+# most common mistakes before the real parser sees the text, so that minor
+# formatting errors don't cause total failure.
+
+
+def _preprocess_yaml_text(raw: str) -> str:
+    """Repair common AI-generated YAML mistakes in-place.
+
+    Covers the most frequent errors seen across dozens of real AI outputs:
+      - Duplicated keys: `title: "title": "value"` -> `title: "value"`
+      - Orphan lines: `-The Math` (dash + word, no colon)
+      - `text: "text": "value"` -> `text: "value"`
+      - Duplicate keys inside inline dicts: `{x:[1,2], x:x}` -> `{x:[1,2]}`
+      - Unquoted bare words in `y: [col1, col2]` lists
+      - `file_name` / `OUTPUT` bare words at end of YAML
+      - Missing space after dash in list items: `-type:` -> `- type:`
+      - Completely empty slides: `- type: content_mixed` followed by `- type:`
+    """
+    text = raw
+    fix_count = [0]  # mutable list so nested functions can increment
+
+    # 1. Strip BOM and stray control chars (except \t \n \r)
+    text = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+
+    # 2. Remove orphan lines like "-The Math" (dash-start, no colon, not a proper list item)
+    cleaned = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith('-') and ':' not in s and not s.startswith('- ') and not s.startswith('-{') and not s.startswith('-\n'):
+            if _re.match(r'^-\w', s):
+                fix_count[0] += 1
+                continue
+        cleaned.append(line)
+    text = '\n'.join(cleaned)
+
+    # 3. Fix duplicated keys: `title: "title": "value"` -> `title: "value"`
+    text = _re.sub(r'(\w[\w_]*):\s*"\1"\s*:\s*', r'\1: ', text)
+    # inline dict variant: {key: "key": value} -> {key: value}
+    text = _re.sub(r'\{\s*(\w[\w_]*)\s*:\s*"\1"\s*:\s*', r'{\1: ', text)
+
+    # 4. Fix `"text": "text": "..."` -> `"text": "..."`
+    text = _re.sub(r'(?:["\x27])?text(?:["\x27])?\s*:\s*["\x27]text["\x27]\s*:\s*', 'text: ', text)
+
+    # 5. Deduplicate last-wins keys inside inline data dicts: {x:[1,2], x:x} -> {x:x}
+    def _dedup_inline_dict(m):
+        block = m.group(0)
+        fix_count[0] += 1
+        brace_start = block.index('{')
+        brace_end = block.rindex('}')
+        inner = block[brace_start + 1:brace_end]
+        pairs = _re.split(r',(?=(?:[^\[\]]*\[[^\[\]]*\])*[^\[\]]*$)', inner)
+        seen = {}
+        for pair in pairs:
+            pair = pair.strip()
+            if ':' not in pair:
+                continue
+            k, v = pair.split(':', 1)
+            seen[k.strip()] = v.strip()
+        deduped = ', '.join(f'{k}: {v}' for k, v in seen.items())
+        return block[:brace_start + 1] + deduped + '}'
+
+    # Match data: {...} where the dict may contain nested lists
+    text = _re.sub(r'\bdata\s*:\s*\{[^}]+\}', _dedup_inline_dict, text)
+
+    # 6. Fix unquoted bare words in y: [word1, word2] lists where they look like
+    #    column name references (should be quoted strings for proper YAML parsing
+    #    when they aren't valid YAML booleans/null/numbers)
+    def _quote_bare_list_items(m):
+        prefix = m.group(1)  # the key like "y" or "columns"
+        inner = m.group(2)
+        items = []
+        for item in _re.split(r',\s*', inner):
+            item = item.strip()
+            # If it looks like a bare word (not number, not quoted, not bool/null)
+            if (_re.match(r'^[a-zA-Z_]\w*$', item)
+                    and item.lower() not in ('true', 'false', 'null', '~', 'yes', 'no', 'on', 'off')):
+                items.append(f'"{item}"')
+            else:
+                items.append(item)
+        return f'{prefix}: [{", ".join(items)}]'
+
+    text = _re.sub(r'\b(y|columns)\s*:\s*\[([^\]]+)\]', _quote_bare_list_items, text)
+
+    # 7. Remove trailing bare words that are not valid YAML (e.g. "file_name" or "OUTPUT" at end)
+    text = _re.sub(r'\n\s*(file_name|OUTPUT|output)\s*(\n|$)', '\n', text, flags=_re.IGNORECASE)
+
+    # 8. Fix missing space after dash in list items: `-type:` -> `- type:`
+    text = _re.sub(r'^(\s*)-(\w+)', r'\1- \2', text, flags=_re.MULTILINE)
+
+    # 9. Remove completely empty slides: `- type: content_mixed` followed by `- type: ...`
+    #    (model sometimes emits a slide header with no data)
+    text = _re.sub(
+        r'(- type: content_mixed\s*\n)(?=- type:)',
+        '',
+        text,
+    )
+
+    if fix_count[0] > 0:
+        logger.info("YAML pre-processor applied %d fix(es)", fix_count[0])
+
+    return text
+
 
 # Map common LaTeX commands to Unicode equivalents used in sanitize_slide_text
 _LATEX_CMD_TO_UNICODE = {
@@ -357,6 +559,30 @@ _LATEX_CMD_TO_UNICODE = {
     r'\leftrightarrow': '↔', r'\hat': '', r'\vec': '', r'\bar': '',
     r'\tilde': '', r'\frac': '',
 }
+
+_INLINE_BULLET_SEP = _re.compile(r'(?<=[.;:])\s+-\s+(?=\S)')
+
+
+def _split_inline_dash_bullets(text: str) -> str:
+    """Convert inline dash-separated clauses like 'A. - B. - C.' into separate
+    bullet lines. AI-generated text sometimes uses ' - ' as a clause separator
+    instead of real newlines, which otherwise renders as literal dash characters
+    embedded in a paragraph rather than as a bulleted list."""
+    lines = text.split('\n')
+    out_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or _re.match(r'^(\s*[-*•]|\s*\d+\.)\s+', stripped):
+            out_lines.append(line)
+            continue
+        parts = _INLINE_BULLET_SEP.split(stripped)
+        if len(parts) > 1:
+            out_lines.append('- ' + parts[0])
+            out_lines.extend('- ' + p for p in parts[1:])
+        else:
+            out_lines.append(line)
+    return '\n'.join(out_lines)
+
 
 def sanitize_slide_text(text: str, preserve_markdown: bool = False) -> str:
     """Strip markdown formatting and inline LaTeX from plain slide text.
@@ -390,6 +616,7 @@ def sanitize_slide_text(text: str, preserve_markdown: bool = False) -> str:
     text = _re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', text)
     # Remaining bare \commands → strip
     text = _re.sub(r'\\[a-zA-Z]+', '', text)
+    text = _split_inline_dash_bullets(text)
     return text
 
 
@@ -428,6 +655,119 @@ def set_slide_background(slide, color: RGBColor):
     fill = slide.background.fill
     fill.solid()
     fill.fore_color.rgb = color
+
+
+def _apply_gradient_background(slide, color1: RGBColor, color2: RGBColor, angle: float = 45.0):
+    """Two-stop diagonal gradient background, used only on "impact" slides
+    (cover, section_divider, stat_highlight) — never on ordinary content slides."""
+    fill = slide.background.fill
+    fill.gradient()
+    stops = fill.gradient_stops
+    stops[0].color.rgb = color1
+    stops[0].position = 0.0
+    stops[1].color.rgb = color2
+    stops[1].position = 1.0
+    fill.gradient_angle = angle
+
+
+def _blend_color(c1: RGBColor, c2: RGBColor, t: float) -> RGBColor:
+    """Linear-interpolate between two colors. t=0 -> c1, t=1 -> c2."""
+    return RGBColor(
+        int(c1[0] + (c2[0] - c1[0]) * t),
+        int(c1[1] + (c2[1] - c1[1]) * t),
+        int(c1[2] + (c2[2] - c1[2]) * t),
+    )
+
+
+def _scale_lightness(rgb: RGBColor, factor: float) -> RGBColor:
+    """Scale a color's lightness by `factor`, keeping its hue and saturation. This varies
+    the DEPTH of a color (lighter/deeper) without changing its family — a blue stays blue."""
+    import colorsys
+    h, l, s = colorsys.rgb_to_hls(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
+    l = max(0.16, min(0.90, l * factor))
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return RGBColor(int(r * 255), int(g * 255), int(b * 255))
+
+
+def _impact_gradient(theme: "Theme", variant: int = 0):
+    """Return one (color1, color2, angle) gradient that is IDENTICAL on every impact slide
+    (cover, section_divider, stat_highlight) so the deck's "moments" share exactly the same
+    look. Earlier we varied lightness per slide, but that read as inconsistent ("not the
+    same blue"); uniformity is what looks harmonious. `variant` is accepted for call-site
+    compatibility but intentionally ignored.
+
+    Dark themes use a deeper gradient so impact slides stay rich (cohesive with the charcoal
+    content slides) rather than turning into a glaringly bright panel.
+
+    Returns (color1, color2, angle, text_color). The text color (white or near-black) is the
+    one that contrasts better, and the gradient is nudged deeper/lighter until BOTH stops clear
+    a WCAG ratio of 4.5 with it — so impact-slide titles are always legible, for any theme."""
+    accent = hex_to_rgb(theme.accent_color)
+    grad = hex_to_rgb(theme.gradient_accent)
+    bg = hex_to_rgb(theme.background_color)
+    white, black = RGBColor(255, 255, 255), RGBColor(20, 20, 20)
+    dark_theme = _relative_luminance(bg) < 0.2
+
+    def min_contrast(t):
+        return min(_wcag_contrast(t, c1), _wcag_contrast(t, c2))
+
+    if dark_theme:
+        # Dark themes: a deep, rich gradient with WHITE text, cohesive with the charcoal
+        # content slides (never a glaringly bright panel that clashes with the rest).
+        c1, c2 = _scale_lightness(accent, 0.72), _scale_lightness(grad, 0.62)
+        use_white = True
+    else:
+        # Light themes: keep the vivid accent gradient; pick whichever text contrasts better
+        # (e.g. white on deep blue, dark on bright gold).
+        c1, c2 = accent, grad
+        use_white = min_contrast(white) >= min_contrast(black)
+
+    text = white if use_white else black
+    factor = 0.9 if use_white else 1.12  # darken for white text, lighten for dark text
+    for _ in range(14):
+        if min_contrast(text) >= 4.5:
+            break
+        c1, c2 = _scale_lightness(c1, factor), _scale_lightness(c2, factor)
+    return c1, c2, 55.0, text
+
+
+def _relative_luminance(c: RGBColor) -> float:
+    """WCAG relative luminance (gamma-corrected)."""
+    def _lin(v: float) -> float:
+        v = int(v) / 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _lin(c[0]) + 0.7152 * _lin(c[1]) + 0.0722 * _lin(c[2])
+
+
+def _wcag_contrast(c1: RGBColor, c2: RGBColor) -> float:
+    """WCAG contrast ratio between two colors (1.0 = none, 21.0 = black/white)."""
+    l1, l2 = _relative_luminance(c1), _relative_luminance(c2)
+    hi, lo = max(l1, l2), min(l1, l2)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _header_fill(accent_rgb: RGBColor) -> RGBColor:
+    """Fill color for header bars / column-title chips. White title text sits on top, so the
+    fill is deepened until it clears a comfortable WCAG contrast (>=4.5) against white — for
+    ANY hue. Greens/teals look bright for their lightness, so a fixed factor isn't enough;
+    iterating on measured contrast guarantees legibility across every theme."""
+    fill = accent_rgb
+    white = RGBColor(255, 255, 255)
+    for _ in range(10):
+        if _wcag_contrast(fill, white) >= 4.5:
+            break
+        fill = _scale_lightness(fill, 0.82)
+    return fill
+
+
+def _contrast_text_color(*colors: RGBColor) -> RGBColor:
+    """Contrasting text color (white or near-black) for one or more background colors,
+    based on their average relative luminance."""
+    def _luminance(c: RGBColor) -> float:
+        r, g, b = int(c[0]), int(c[1]), int(c[2])
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+    avg = sum(_luminance(c) for c in colors) / len(colors)
+    return RGBColor(255, 255, 255) if avg < 0.55 else RGBColor(30, 30, 30)
 
 
 def _parse_inline_markdown(text: str):
@@ -578,6 +918,9 @@ def _fill_textbox_markdown(tf, text, font_name, font_size, bold, italic, color, 
             else:
                 p = tf.add_paragraph()
             p.alignment = align
+        # Breathing room so body text doesn't read as a cramped block hugging the top.
+        p.line_spacing = 1.25
+        p.space_after = Pt(10)
         for seg_text, seg_bold, seg_italic in _parse_inline_markdown(stripped):
             _add_run_to_paragraph(p, seg_text, font_name, font_size,
                                   bold or seg_bold, italic or seg_italic, color)
@@ -598,6 +941,29 @@ def _force_bullet_text(text: str) -> str:
     return '\n'.join(normalized)
 
 
+def _autofit_font_size(text: str, base_size: int, width_emu: int, height_emu: int) -> int:
+    """Estimate the largest font size (down to a floor) at which `text` fits in a box of the
+    given size, so dense slides don't spill past the slide edge. Coarse on purpose — it errs
+    toward shrinking; PowerPoint's normAutofit then refines the exact scale on open."""
+    import math
+    width_in = max(width_emu / 914400.0, 0.5)
+    height_in = max(height_emu / 914400.0, 0.5)
+    lines = (text or "").replace("\\n", "\n").splitlines()
+    n_paras = max(1, len([l for l in lines if l.strip()]))
+    size = base_size
+    while size > 12:
+        chars_per_line = max(1, int(width_in * 142 / size))  # ~avg Calibri glyph width
+        wrapped = 0.0
+        for l in lines:
+            s = l.strip()
+            wrapped += math.ceil(len(s) / chars_per_line) if s else 0.5
+        total_in = wrapped * (size * 1.25) / 72.0 + n_paras * (10 / 72.0)
+        if total_in <= height_in:
+            break
+        size -= 1
+    return size
+
+
 def add_text_box(
     slide,
     left, top, width, height,
@@ -611,21 +977,40 @@ def add_text_box(
     text_style: Literal["prose", "bullets"] = "prose",
     accent_rgb: RGBColor = None,
     bg_rgb: RGBColor = None,
+    vertical_center: bool = False,
+    autofit: bool = False,
 ):
     """Add a text box. markdown=True parses bold/italic/bullets.
     text_style='bullets' forces every non-empty line into a bullet item.
     Embedded markdown pipe tables are automatically detected and rendered as real PPTX tables.
+    vertical_center=True anchors short content to the middle of the box instead of the top,
+    so sparse text doesn't leave a large empty area below it.
+    autofit=True shrinks the font to fit the box ("Shrink text on overflow") so dense slides
+    never spill text past the slide edge; combined here with a content-length pre-scale.
     """
     if text and text_style == "bullets":
         text = _force_bullet_text(text)
 
+    # Pre-shrink long body text so it fits even in renderers that don't apply PowerPoint's
+    # autofit lazily. Heuristic on raw text length; PowerPoint's normAutofit refines further.
+    if autofit and text:
+        font_size = _autofit_font_size(text, font_size, width, height)
+
+    def _apply_autofit(tf):
+        if autofit:
+            tf.word_wrap = True
+            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
     if not markdown or not text:
         shape = slide.shapes.add_textbox(left, top, width, height)
         shape.text_frame.word_wrap = word_wrap
+        if vertical_center:
+            shape.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
         shape.text_frame.clear()
         p = shape.text_frame.paragraphs[0]
         p.alignment = align
         _add_run_to_paragraph(p, text or '', font_name, font_size, bold, italic, color)
+        _apply_autofit(shape.text_frame)
         return shape
 
     # Detect embedded markdown tables
@@ -635,9 +1020,12 @@ def add_text_box(
     if not has_table:
         shape = slide.shapes.add_textbox(left, top, width, height)
         shape.text_frame.word_wrap = word_wrap
+        if vertical_center:
+            shape.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
         shape.text_frame.clear()
         _fill_textbox_markdown(shape.text_frame, text, font_name, font_size,
                                bold, italic, color, align)
+        _apply_autofit(shape.text_frame)
         return shape
 
     # Mixed text + table: stack segments vertically within the given bounds
@@ -679,9 +1067,10 @@ def add_text_box(
 
 
 def add_header_bar(slide, prs, title, font_name, accent_rgb, bar_height=Inches(0.8)):
+    fill = _header_fill(accent_rgb)
     bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, bar_height)
     bar.fill.solid()
-    bar.fill.fore_color.rgb = accent_rgb
+    bar.fill.fore_color.rgb = fill
     bar.line.fill.background()
 
     text_box = slide.shapes.add_textbox(0, 0, prs.slide_width, bar_height)
@@ -700,7 +1089,7 @@ def add_header_bar(slide, prs, title, font_name, accent_rgb, bar_height=Inches(0
     run.font.name = font_name
     run.font.size = Pt(24)
     run.font.bold = True
-    run.font.color.rgb = RGBColor(255, 255, 255)
+    run.font.color.rgb = _contrast_text_color(fill)
     return bar_height
 
 
@@ -765,13 +1154,17 @@ def add_oval_shape(slide, x, y, w, h, fill_color, line_color=None, line_w_pt=1.5
         MSO_SHAPE.OVAL,
         int(round(x)), int(round(y)), int(round(w)), int(round(h))
     )
-    shape.fill.solid()
-    shape.fill.fore_color.rgb = fill_color
+    if fill_color is None:
+        shape.fill.background()
+    else:
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = fill_color
     if line_color:
         shape.line.color.rgb = line_color
         shape.line.width = Pt(line_w_pt)
     else:
         shape.line.fill.background()
+    shape.shadow.inherit = False
     return shape
 
 
@@ -787,166 +1180,43 @@ def add_line_shape(slide, x1, y1, x2, y2, color, width_pt=1.5, dash=False):
     return connector
 
 
-def _render_chart_image(chart_def: ChartData, width, height):
-    kind = chart_def.kind or chart_def.type
-    if not kind:
-        raise ValueError("chart requires a 'type' or 'kind' field.")
-    kind = kind if kind != "histogram" else "hist"
+_INTENT_TO_CHART_KIND = {
+    "comparison": "bar",
+    "trend": "line",
+    "distribution": "hist",
+    "part_of_whole": "pie",
+}
 
+
+def _render_chart_image(chart_def: ChartData, palette: str, width, height):
+    """Render one of the four visualization intents using the existing seaborn/matplotlib
+    backend in utils/charts.py. The theme's chart_palette is always applied; the LLM
+    never selects a low-level chart kind or palette directly."""
+    kind = _INTENT_TO_CHART_KIND[chart_def.intent]
+
+    # Use the slide's chart title if given, else NO title (a single space suppresses the
+    # backend's ugly auto-generated "Barras: value por category" default). Axis labels are
+    # blanked too — the category names already appear on the axis, so "category"/"value"
+    # are noise that looks unprofessional.
     kwargs = {
         "save_path": None,
+        "palette": palette,
+        "title": chart_def.title if chart_def.title else " ",
+        "xlabel": " ",
+        "ylabel": " ",
     }
-    hue_col_name = None
-    if chart_def.hue is not None and not isinstance(chart_def.hue, list):
-        kwargs["hue"] = chart_def.hue
-    if chart_def.palette is not None:
-        kwargs["palette"] = chart_def.palette
-    if chart_def.xlabel is not None:
-        kwargs["xlabel"] = chart_def.xlabel
-    if chart_def.ylabel is not None:
-        kwargs["ylabel"] = chart_def.ylabel
-    if chart_def.group is not None:
-        kwargs["group"] = chart_def.group
-    if chart_def.col is not None:
-        kwargs["col"] = chart_def.col
-    if chart_def.col_wrap is not None:
-        kwargs["col_wrap"] = chart_def.col_wrap
-    if chart_def.title is not None:
-        kwargs["title"] = chart_def.title
-    if chart_def.bins is not None:
-        kwargs["bins"] = chart_def.bins
-    if chart_def.kernels is not None:
-        kwargs["kernels"] = chart_def.kernels
-    if chart_def.bw_adjusts is not None:
-        kwargs["bw_adjusts"] = chart_def.bw_adjusts
-    if chart_def.line_kws is not None:
-        kwargs["line_kws"] = chart_def.line_kws
-    if chart_def.chart_kwargs:
-        kwargs.update(chart_def.chart_kwargs)
 
-    if chart_def.data is not None:
-        if not isinstance(chart_def.data, dict):
-            raise ValueError("chart.data must be a dict of series, e.g. {x: [1,2,3], y: [4,5,6]}")
-        data_dict = dict(chart_def.data)
-        if isinstance(chart_def.hue, list):
-            hue_col_name = "hue"
-            suffix = 0
-            while hue_col_name in data_dict:
-                suffix += 1
-                hue_col_name = f"hue_{suffix}"
-            data_dict[hue_col_name] = chart_def.hue
-            kwargs["hue"] = hue_col_name
-
-        if data_dict:
-            list_lengths = [len(v) for v in data_dict.values() if isinstance(v, list)]
-            if list_lengths:
-                min_len = min(list_lengths)
-                if any(len(v) != min_len for v in data_dict.values() if isinstance(v, list)):
-                    for k, v in list(data_dict.items()):
-                        if isinstance(v, list):
-                            data_dict[k] = v[:min_len]
-                    logger.warning("Truncated chart data series to min length %d", min_len)
-
-        if kind in ("heatmap", "clustermap", "pair", "pair_kde") and "columns" in data_dict:
-            if chart_def.columns is None:
-                chart_def.columns = data_dict.pop("columns")
-            else:
-                data_dict.pop("columns", None)
-
-        # Heatmap and clustermap can accept a direct matrix as a single nested list.
-        if kind in ("heatmap", "clustermap") and len(data_dict) == 1:
-            matrix = next(iter(data_dict.values()))
-            if isinstance(matrix, list) and matrix and isinstance(matrix[0], list):
-                if chart_def.columns is not None:
-                    df = pd.DataFrame(matrix, columns=chart_def.columns)
-                    kwargs["columns"] = chart_def.columns
-                else:
-                    df = pd.DataFrame(matrix)
-                kwargs["matrix"] = True
-            else:
-                df = pd.DataFrame(data_dict)
-        else:
-            df = pd.DataFrame(data_dict)
-        if chart_def.x is not None:
-            kwargs["x"] = chart_def.x
-        elif "x" in df.columns:
-            kwargs["x"] = "x"
-        elif kind in ("hist", "kde", "ecdf", "ridge", "boxen", "bar", "count", "point", "box", "violin", "strip", "swarm", "line", "timeseries"):
-            kwargs["x"] = df.columns[0]
-        if chart_def.y is not None:
-            kwargs["y"] = chart_def.y
-        elif "y" in df.columns:
-            kwargs["y"] = "y"
-        if chart_def.size is not None:
-            kwargs["size"] = chart_def.size
-        elif chart_def.z is not None:
-            kwargs["size"] = chart_def.z
-        elif kind == "bubble" and "size" in df.columns:
-            kwargs["size"] = "size"
-        if chart_def.col is not None:
-            kwargs["col"] = chart_def.col
-        elif kind in ("lmplot_facet", "timeseries_facet") and "col" in df.columns:
-            kwargs["col"] = "col"
-        if chart_def.columns is not None:
-            kwargs["columns"] = chart_def.columns
-
-        if chart_def.x is not None and chart_def.x not in df.columns:
-            raise ValueError(f"chart x column {chart_def.x!r} not found in chart.data")
-        if chart_def.y is not None and chart_def.y not in df.columns:
-            raise ValueError(f"chart y column {chart_def.y!r} not found in chart.data")
-        if chart_def.group is not None and chart_def.group not in df.columns:
-            raise ValueError(f"chart group column {chart_def.group!r} not found in chart.data")
-        if chart_def.size is not None and chart_def.size not in df.columns:
-            raise ValueError(f"chart size column {chart_def.size!r} not found in chart.data")
-        if chart_def.z is not None and chart_def.z not in df.columns:
-            raise ValueError(f"chart z size alias column {chart_def.z!r} not found in chart.data")
-        if chart_def.col is not None and chart_def.col not in df.columns:
-            raise ValueError(f"chart col column {chart_def.col!r} not found in chart.data")
-
-        if kind == "ridge" and "group" not in kwargs and "group" in df.columns:
-            kwargs["group"] = "group"
-        if kind in ("lmplot_facet", "timeseries_facet") and "col" not in kwargs:
-            raise ValueError(f"{kind} charts require a col field and a matching data column to facet by")
-
-        if kind in ("bar", "box", "violin", "strip", "swarm", "point") and "y" not in kwargs:
-            raise ValueError(
-                f"{kind} charts require both x and y series in chart.data, e.g. {{x: [...], y: [...]}}"
-            )
-        if kind == "bubble" and "size" not in kwargs:
-            raise ValueError(
-                "bubble charts require a size series, for example {size: 'column_name'} or {z: 'column_name'}"
-            )
-        if kind == "count" and "x" not in kwargs:
-            raise ValueError(
-                "count charts require an x series in chart.data, for example {x: ['A','B','A']}"
-            )
-        if kind == "count" and "x" not in kwargs:
-            raise ValueError(
-                "count charts require an x series in chart.data, for example {x: ['A','B','A']}"
-            )
-    else:
-        if kind in ("bar", "line", "pie"):
-            if chart_def.categories is None or chart_def.values is None:
-                raise ValueError(f"{kind} charts require categories and values when data is absent.")
-            df = pd.DataFrame({"category": chart_def.categories, "value": chart_def.values})
-            kwargs["x"] = "category"
-            kwargs["y"] = "value"
-        elif kind == "hist":
-            if not chart_def.values:
-                raise ValueError("Histogram requires values when data is absent.")
-            df = pd.DataFrame({"value": chart_def.values})
-            kwargs["x"] = "value"
-        elif kind == "scatter":
-            if isinstance(chart_def.x, list) and isinstance(chart_def.y, list):
-                if len(chart_def.x) != len(chart_def.y):
-                    raise ValueError("Scatter x and y lists must have the same length.")
-                df = pd.DataFrame({"x": chart_def.x, "y": chart_def.y})
-                kwargs["x"] = "x"
-                kwargs["y"] = "y"
-            else:
-                raise ValueError("Scatter requires x and y lists when data is absent.")
-        else:
-            raise ValueError("chart data is required for matplotlib rendering.")
+    if chart_def.intent in ("comparison", "part_of_whole"):
+        df = pd.DataFrame({"category": chart_def.categories, "value": chart_def.values})
+        kwargs["x"] = "category"
+        kwargs["y"] = "value"
+    elif chart_def.intent == "trend":
+        df = pd.DataFrame({"x": chart_def.x, "y": chart_def.y})
+        kwargs["x"] = "x"
+        kwargs["y"] = "y"
+    else:  # distribution
+        df = pd.DataFrame({"value": chart_def.values})
+        kwargs["x"] = "value"
 
     from matplotlib import pyplot as plt
 
@@ -973,18 +1243,45 @@ def _render_chart_image(chart_def: ChartData, width, height):
     return buf
 
 
-def add_chart(slide, chart_def: ChartData, left, top, width, height,
+def add_chart(slide, chart_def: ChartData, palette: str, left, top, width, height,
               accent_rgb: RGBColor = None, bg_rgb: RGBColor = None,
               txt_color: RGBColor = None):
-    """Render charts using the matplotlib backend and insert the image into PowerPoint."""
-    chart_image = _render_chart_image(chart_def, width, height)
-    place_image_centered(slide, chart_image, left, top, width, height)
+    """Render charts using the matplotlib backend and insert the image into PowerPoint.
+    The chart is placed on a white rounded card with a thin themed border so it reads as
+    an intentionally placed element rather than a stray white rectangle, especially on
+    dark or strongly colored themes (the matplotlib backend always renders on white)."""
+    try:
+        chart_image = _render_chart_image(chart_def, palette, width, height)
+        pad = Inches(0.12)
+        card = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            int(left - pad), int(top - pad), int(width + 2 * pad), int(height + 2 * pad),
+        )
+        card.fill.solid()
+        card.fill.fore_color.rgb = RGBColor(255, 255, 255)
+        card.line.color.rgb = accent_rgb or RGBColor(200, 200, 200)
+        card.line.width = Pt(0.75)
+        card.shadow.inherit = False
+        try:
+            card.adjustments[0] = 0.04
+        except (IndexError, ValueError):
+            pass
+        place_image_centered(slide, chart_image, left, top, width, height)
+    except Exception as e:
+        logger.warning("Chart rendering failed: %s. Adding placeholder text instead.", e)
+        add_text_box(slide, left, top, width, height,
+                     f"[Chart could not be rendered: {e}]",
+                     "Calibri", 12, color=txt_color or RGBColor(180, 180, 180),
+                     align=PP_ALIGN.LEFT)
     return
 
 def add_table(slide, table_def: TableData, left, top, width, height, font_name,
               font_size: int = 11, accent_rgb: RGBColor = None,
-              bg_rgb: RGBColor = None, txt_color: RGBColor = None):
-    """Add a styled table: accent-colored header row, alternating row backgrounds."""
+              bg_rgb: RGBColor = None, txt_color: RGBColor = None,
+              vertical_center: bool = False):
+    """Add a styled table: accent-colored header row, alternating row backgrounds.
+    vertical_center=True centers the table within the allotted `height` so it lines up with
+    vertically-centered body text beside it (instead of hugging the top of its column)."""
     _accent = accent_rgb or RGBColor(0x0D, 0x94, 0x88)
     _bg = bg_rgb or RGBColor(0xF0, 0xFD, 0xFA)
     _txt = txt_color or RGBColor(30, 30, 30)
@@ -998,6 +1295,8 @@ def add_table(slide, table_def: TableData, left, top, width, height, font_name,
     cols = len(table_def.headers)
     row_height = Inches(0.40)
     actual_height = min(rows * row_height, height)
+    if vertical_center and actual_height < height:
+        top = int(top + (height - actual_height) / 2)
     tbl_shape = slide.shapes.add_table(rows, cols, left, top, width, actual_height)
     tbl = tbl_shape.table
     # Header row
@@ -1062,19 +1361,29 @@ def _render_latex_to_image(
     import matplotlib.pyplot as plt
 
     fg = (txt_rgb[0] / 255, txt_rgb[1] / 255, txt_rgb[2] / 255)
-    n = max(len(latex_lines), 1)
-    fig_h = max(1.5, n * 0.85)
+    sanitized_lines = [_sanitize_latex_line(raw_line).strip() for raw_line in latex_lines] or ['']
+    # Lines with tall multi-part notation (summations, fractions, integrals, roots)
+    # need more vertical room than a single-height row, or adjacent lines visually
+    # touch each other once rendered.
+    weights = [
+        1.5 if any(marker in line for marker in (r'\sum', r'\prod', r'\int', r'\frac', r'\sqrt'))
+        else 1.0
+        for line in sanitized_lines
+    ]
+    total_weight = sum(weights)
+    fig_h = max(1.5, total_weight * 0.95)
     fig, ax = plt.subplots(figsize=(10, fig_h), dpi=dpi)
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
-    for i, raw_line in enumerate(latex_lines):
-        line = _sanitize_latex_line(raw_line).strip()
+    cumulative = 0.0
+    for line, weight in zip(sanitized_lines, weights):
         if line and not (line.startswith('$') and line.endswith('$')):
             line = f'${line}$'
-        y = 1.0 - (i + 0.5) / n
+        y = 1.0 - (cumulative + weight / 2) / total_weight
+        cumulative += weight
         try:
             ax.text(
                 0.02, y, line,
@@ -1114,13 +1423,14 @@ def _resolve_image(image_registry: dict, image_id: str):
     return image
 
 
-def build_cover(prs, config: GlobalConfig, data: CoverSlide, image_registry: dict):
-    """Clean cover: full accent background, all content vertically and horizontally centered."""
+def build_cover(prs, theme: Theme, data: CoverSlide, image_registry: dict, variant: int = 0):
+    """High-impact cover: a clean two-tone gradient whose hue varies per impact slide,
+    with content vertically and horizontally centered. No decorative shapes."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    accent = hex_to_rgb(config.accent_color)
-    set_slide_background(slide, accent)
+    c1, c2, angle, txt = _impact_gradient(theme, variant)
+    _apply_gradient_background(slide, c1, c2, angle)
     W, H = prs.slide_width, prs.slide_height
-    white = RGBColor(255, 255, 255)
+    secondary = _blend_color(txt, RGBColor(128, 128, 128), 0.25)
     inner_x = MARGIN + Inches(0.4)
     inner_w = W - (MARGIN + Inches(0.4)) * 2
 
@@ -1134,18 +1444,18 @@ def build_cover(prs, config: GlobalConfig, data: CoverSlide, image_registry: dic
     block_top = int((H - block_h) / 2)
 
     add_text_box(slide, inner_x, block_top, inner_w, TITLE_H,
-                 data.title, config.font_heading, 46,
-                 bold=True, color=white, align=PP_ALIGN.CENTER)
+                 data.title, theme.font_heading, 46,
+                 bold=True, color=txt, align=PP_ALIGN.CENTER)
     y = block_top + TITLE_H + GAP_TS
     if data.subtitle:
         add_text_box(slide, inner_x, y, inner_w, SUB_H,
-                     data.subtitle, config.font_body, 22,
-                     italic=True, color=RGBColor(240, 245, 250), align=PP_ALIGN.CENTER)
+                     data.subtitle, theme.font_body, 22,
+                     italic=True, color=secondary, align=PP_ALIGN.CENTER)
         y += SUB_H + GAP_SD
     if data.date:
         add_text_box(slide, inner_x, y, inner_w, DATE_H,
-                     data.date, config.font_body, 14,
-                     color=RGBColor(220, 235, 248), align=PP_ALIGN.CENTER)
+                     data.date, theme.font_body, 14,
+                     color=secondary, align=PP_ALIGN.CENTER)
     _add_notes(slide, data.notes)
 
 
@@ -1170,92 +1480,94 @@ def _add_accent_title_bar(slide, prs, title, font_name, accent_rgb, txt_color, h
         return title_top + title_h + Inches(0.1)
 
 
-def build_content_image(prs, config: GlobalConfig, data: ContentImageSlide, image_registry: dict):
+def build_content_image(prs, theme: Theme, data: ContentImageSlide, image_registry: dict, variant: int = 0):
     """Left-text / Right-image layout."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg_rgb, txt_color = _resolve_background(config, data.background)
-    accent = hex_to_rgb(config.accent_color)
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    header_bar = _resolve_header_bar(data.style_override, default=True)
+    content_top = _add_accent_title_bar(slide, prs, data.title, theme.font_heading, accent, txt_color, header_bar, bg_rgb)
     content_top += Inches(0.3)
     content_h = H - content_top - MARGIN
     gutter = Inches(0.4)
     text_col_w = int((W - MARGIN * 2 - gutter) * 0.42)
     img_col_w = int((W - MARGIN * 2 - gutter) * 0.58)
     add_text_box(slide, MARGIN, content_top, text_col_w, content_h,
-                 sanitize_slide_text(data.text, preserve_markdown=True), config.font_body, 15,
+                 sanitize_slide_text(data.text, preserve_markdown=True), theme.font_body, 17,
                  color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
-                 text_style=data.text_style)
+                 vertical_center=True, autofit=True)
     img_x = MARGIN + text_col_w + gutter
     img_source = _resolve_image(image_registry, data.image_id)
     place_image_centered(slide, img_source, img_x, content_top + Inches(0.1), img_col_w, content_h - Inches(0.2))
     _add_notes(slide, data.notes)
 
 
-def build_two_column(prs, config: GlobalConfig, data: TwoColumnSlide, image_registry: dict):
+def build_two_column(prs, theme: Theme, data: TwoColumnSlide, image_registry: dict, variant: int = 0):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg_rgb, txt_color = _resolve_background(config, data.background)
-    accent = hex_to_rgb(config.accent_color)
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, False, bg_rgb)
+    header_bar = _resolve_header_bar(data.style_override, default=False)
+    content_top = _add_accent_title_bar(slide, prs, data.title, theme.font_heading, accent, txt_color, header_bar, bg_rgb)
     content_top += Inches(0.3)  # breathing room below main title
     content_h = H - content_top - MARGIN
     gutter = Inches(0.5)  # wider gap provides visual separation without a line
     col_w = int((W - MARGIN * 2 - gutter) / 2)
     _build_column(slide, MARGIN, content_top, col_w, content_h,
                   sanitize_slide_text(data.left.title), data.left.text,
-                  config.font_heading, config.font_body, txt_color, accent,
-                  data.left.text_style)
+                  theme.font_heading, theme.font_body, txt_color, accent)
     _build_column(slide, MARGIN + col_w + gutter, content_top, col_w, content_h,
                   sanitize_slide_text(data.right.title), data.right.text,
-                  config.font_heading, config.font_body, txt_color, accent,
-                  data.right.text_style)
+                  theme.font_heading, theme.font_body, txt_color, accent)
     _add_notes(slide, data.notes)
 
 
 def _build_column(slide, left, top, width, height,
-                  title, text, font_heading, font_body, txt_color, accent,
-                  text_style: Literal["prose", "bullets"] = "prose"):
+                  title, text, font_heading, font_body, txt_color, accent):
     """Render a single column: accent-colored header rectangle + body text."""
     title_h = Inches(0.52)
-    # Accent-colored header rectangle defining the column title zone
+    # Accent-colored header rectangle defining the column title zone. Deepen a bright accent
+    # so the white title text stays legible (matches the slide header bar treatment).
+    header_fill = _header_fill(accent)
     header_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, title_h)
     header_rect.fill.solid()
-    header_rect.fill.fore_color.rgb = accent
+    header_rect.fill.fore_color.rgb = header_fill
     header_rect.line.fill.background()
-    # Title text over the colored header
+    # Title text over the colored header (contrast-aware against the chip fill)
     add_text_box(slide, left + Inches(0.1), top + Inches(0.05),
                  width - Inches(0.12), title_h - Inches(0.08),
                  title, font_heading, 15,
-                 bold=True, color=RGBColor(255, 255, 255), align=PP_ALIGN.LEFT)
-    # Body text below
+                 bold=True, color=_contrast_text_color(header_fill), align=PP_ALIGN.LEFT)
+    # Body text below. Top-aligned (NOT vertically centered) so the two columns of a
+    # comparison line up row-for-row even when they hold different amounts of text.
     body_top = top + title_h + Inches(0.22)
     body_h = height - title_h - Inches(0.22)
     add_text_box(slide, left, body_top, width, body_h,
-                 sanitize_slide_text(text, preserve_markdown=True), font_body, 13,
+                 sanitize_slide_text(text, preserve_markdown=True), font_body, 15,
                  color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
-                 text_style=text_style)
+                 vertical_center=False, autofit=True)
 
 
-def build_content_mixed(prs, config: GlobalConfig, data: ContentMixedSlide, image_registry: dict):
+def build_content_mixed(prs, theme: Theme, data: ContentMixedSlide, image_registry: dict, variant: int = 0):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg_rgb, txt_color = _resolve_background(config, data.background)
-    accent = hex_to_rgb(config.accent_color)
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    header_bar = _resolve_header_bar(data.style_override, default=True)
+    content_top = _add_accent_title_bar(slide, prs, data.title, theme.font_heading, accent, txt_color, header_bar, bg_rgb)
     content_top += Inches(0.3)
     gutter = Inches(0.4)
     total_inner_w = W - MARGIN * 2 - gutter
     text_col_w = int(total_inner_w * 0.38)
     right_col_w = total_inner_w - text_col_w
     add_text_box(slide, MARGIN, content_top, text_col_w, H - content_top - MARGIN,
-                 sanitize_slide_text(data.text or '', preserve_markdown=True), config.font_body, 15,
+                 sanitize_slide_text(data.text or '', preserve_markdown=True), theme.font_body, 17,
                  color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
-                 text_style=data.text_style,
-                 accent_rgb=accent, bg_rgb=bg_rgb)
+                 accent_rgb=accent, bg_rgb=bg_rgb, vertical_center=True, autofit=True)
     right_x = MARGIN + text_col_w + gutter
     if data.image_id:
         img_source = _resolve_image(image_registry, data.image_id)
@@ -1263,175 +1575,288 @@ def build_content_mixed(prs, config: GlobalConfig, data: ContentMixedSlide, imag
         img_height = H - content_top - MARGIN - Inches(0.16)
         place_image_centered(slide, img_source, right_x, img_top, right_col_w, img_height)
     elif data.chart:
-        add_chart(slide, data.chart, right_x, content_top, right_col_w, H - content_top - MARGIN,
+        add_chart(slide, data.chart, theme.chart_palette, right_x, content_top, right_col_w, H - content_top - MARGIN,
                   accent_rgb=accent, bg_rgb=bg_rgb, txt_color=txt_color)
     elif data.table:
         add_table(slide, data.table, right_x, content_top + Inches(0.1), right_col_w,
-                  H - content_top - MARGIN - Inches(0.1), config.font_body,
-                  accent_rgb=accent, bg_rgb=bg_rgb, txt_color=txt_color)
+                  H - content_top - MARGIN - Inches(0.1), theme.font_body,
+                  accent_rgb=accent, bg_rgb=bg_rgb, txt_color=txt_color, vertical_center=True)
     _add_notes(slide, data.notes)
 
 
-def build_timeline(prs, config: GlobalConfig, data: TimelineSlide, image_registry: dict):
+def build_timeline(prs, theme: Theme, data: TimelineSlide, image_registry: dict, variant: int = 0):
+    if data.style == "vertical":
+        return _build_timeline_vertical(prs, theme, data, image_registry)
+    return _build_timeline_horizontal(prs, theme, data)
+
+
+def _timeline_line_color(txt_color) -> RGBColor:
+    """Subtle connector color that stays visible on both light and dark backgrounds."""
+    is_dark_bg = int(txt_color[0]) > 128  # white text => dark slide background
+    return RGBColor(0x3C, 0x4A, 0x60) if is_dark_bg else RGBColor(0xCB, 0xD5, 0xE1)
+
+
+def _draw_timeline_node(slide, cx, cy, accent, bg_rgb, active: bool):
+    """Draw a clean, professional marker: a small solid accent dot, with a thin hollow
+    accent ring around the active one. No oversized emoji bubbles (those read as childish)."""
+    dot_r = Inches(0.13) if active else Inches(0.085)
+    if active:
+        ring_r = Inches(0.23)
+        # Hollow ring: fill matches the slide background so only the outline shows.
+        add_oval_shape(slide, int(cx - ring_r), int(cy - ring_r), ring_r * 2, ring_r * 2,
+                       fill_color=bg_rgb, line_color=accent, line_w_pt=1.75)
+    add_oval_shape(slide, int(cx - dot_r), int(cy - dot_r), dot_r * 2, dot_r * 2,
+                   fill_color=accent, line_color=None)
+
+
+def _build_timeline_horizontal(prs, theme: Theme, data: TimelineSlide):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg_rgb, txt_color = _resolve_background(config, data.background)
-    accent = hex_to_rgb(config.accent_color)
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
+    line_rgb = _timeline_line_color(txt_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, True, bg_rgb)
+    header_bar = _resolve_header_bar(data.style_override, default=True)
+    content_top = _add_accent_title_bar(slide, prs, data.title, theme.font_heading, accent, txt_color, header_bar, bg_rgb)
     content_top += Inches(0.3)
 
     items = data.items
     n_items = len(items)
-    active_idx = data.active_index if data.active_index is not None else n_items // 2
-    usable_w = W - MARGIN * 2
-    step = usable_w / max(n_items - 1, 1)
+    active_idx = data.active_index if data.active_index is not None else -1
+    # Inset the axis so first/last labels have room and nodes never touch the slide edge.
+    inset = Inches(1.1)
+    axis_left = MARGIN + inset
+    axis_right = W - MARGIN - inset
+    step = (axis_right - axis_left) / max(n_items - 1, 1)
 
-    # Center the timeline vertically below the header, keeping room for event labels above and below.
-    line_y = int(round(H * 0.48))
-    line_top = line_y - int(round(Inches(0.02)))
-    add_rect(slide, MARGIN, line_top, usable_w, Inches(0.04), fill_color=RGBColor(0xCB, 0xD5, 0xE1))
+    line_y = int(round(H * 0.50))
+    # Thin refined axis.
+    add_rect(slide, axis_left, line_y - int(Inches(0.0125)), int(axis_right - axis_left), Inches(0.025),
+             fill_color=line_rgb)
 
-    base_radius = Inches(0.32)
-    active_radius = Inches(0.58)
-    inner_radius = Inches(0.22)
-    active_inner_radius = Inches(0.28)
-    text_box_width = Inches(2.6)
-    text_box_height = Inches(0.90)
-
+    text_box_width = Inches(2.3)
     for i, item in enumerate(items):
-        x = int(round(MARGIN + i * step))
+        x = int(round(axis_left + i * step))
         active = (i == active_idx)
-        radius = active_radius if active else base_radius
-        circle_fill = accent if active else RGBColor(0x06, 0x5A, 0x82)
-        circle_border = accent if active else RGBColor(0x1C, 0x72, 0x93)
-        inner_r = active_inner_radius if active else inner_radius
-
-        add_oval_shape(slide, x - radius, line_y - radius, radius * 2, radius * 2,
-                       fill_color=circle_fill, line_color=circle_border, line_w_pt=2.5)
-
-        inner_shape = add_oval_shape(slide, x - inner_r, line_y - inner_r,
-                                     inner_r * 2, inner_r * 2,
-                                     fill_color=RGBColor(255, 255, 255), line_color=None)
-        if item.emoji:
-            tf = inner_shape.text_frame
-            tf.clear()
-            tf.margin_bottom = 0
-            tf.margin_top = 0
-            tf.margin_left = 0
-            tf.margin_right = 0
-            p = tf.paragraphs[0]
-            p.alignment = PP_ALIGN.CENTER
-            run = p.add_run()
-            run.text = item.emoji
-            run.font.name = config.font_body
-            run.font.size = Pt(24 if active else 20)
-            run.font.bold = True
+        _draw_timeline_node(slide, x, line_y, accent, bg_rgb, active)
 
         is_top = (i % 2 == 0)
-        edge_padding = Inches(0.40)
-        if i == 0:
-            text_left = max(int(round(MARGIN - edge_padding)), int(round(x - text_box_width + Inches(0.12))))
-            text_align = PP_ALIGN.LEFT
-        elif i == n_items - 1:
-            text_left = min(int(round(W - MARGIN - text_box_width + edge_padding)), int(round(x - Inches(0.12))))
-            text_align = PP_ALIGN.RIGHT
-        else:
-            text_left = int(round(x - text_box_width / 2))
-            text_left = max(int(round(MARGIN)), min(int(round(W - MARGIN - text_box_width)), text_left))
-            text_align = PP_ALIGN.CENTER
-
+        text_left = int(round(x - text_box_width / 2))
+        text_left = max(int(MARGIN), min(int(W - MARGIN - text_box_width), text_left))
+        gap = Inches(0.40)
         if is_top:
-            text_top = int(round(line_y - radius * 2 - text_box_height - Inches(0.18)))
-            connector_start_y = int(round(line_y - radius))
-            connector_end_y = int(round(text_top + text_box_height))
+            date_top = int(round(line_y - gap - Inches(0.78)))
         else:
-            text_top = int(round(line_y + radius * 2 + Inches(0.18)))
-            connector_start_y = int(round(line_y + radius))
-            connector_end_y = text_top
+            date_top = int(round(line_y + gap))
 
-        add_line_shape(slide, x, connector_start_y, x, connector_end_y, color=circle_fill, width_pt=1.5, dash=True)
-
-        add_text_box(slide, text_left, text_top, text_box_width, Inches(0.28),
-                     item.fecha, config.font_body, 10, color=circle_border, bold=True, align=text_align)
-        add_text_box(slide, text_left, text_top + Inches(0.28), text_box_width, Inches(0.62),
-                     item.titulo, config.font_body, 13, color=txt_color, bold=True, align=text_align, word_wrap=True)
+        add_text_box(slide, text_left, date_top, text_box_width, Inches(0.26),
+                     item.fecha, theme.font_body, 11, color=accent, bold=True, align=PP_ALIGN.CENTER)
+        add_text_box(slide, text_left, date_top + Inches(0.28), text_box_width, Inches(0.52),
+                     item.titulo, theme.font_body, 14, color=txt_color, bold=True,
+                     align=PP_ALIGN.CENTER, word_wrap=True)
 
     _add_notes(slide, data.notes)
 
 
-def build_section_divider(prs, config: GlobalConfig, data: SectionDividerSlide, image_registry: dict):
-    """Section divider: full accent background, centered title and subtitle."""
+def _build_timeline_vertical(prs, theme: Theme, data: TimelineSlide, image_registry: dict):
+    """Vertical timeline: a top-to-bottom rail with stacked nodes, each event's date + title
+    to its right. With an optional `image_id`/`text`, that content fills the LEFT side and the
+    rail shifts to the RIGHT half (a clean two-pane layout). Suits 4-6 events / longer titles."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    accent = hex_to_rgb(config.accent_color)
-    set_slide_background(slide, accent)
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
+    line_rgb = _timeline_line_color(txt_color)
+    set_slide_background(slide, bg_rgb)
+    W, H = prs.slide_width, prs.slide_height
+    header_bar = _resolve_header_bar(data.style_override, default=True)
+    content_top = _add_accent_title_bar(slide, prs, data.title, theme.font_heading, accent, txt_color, header_bar, bg_rgb)
+    content_top += Inches(0.25)
+    content_h = H - content_top - MARGIN
+
+    has_side = bool(data.image_id or data.text)
+    if has_side:
+        # Left pane: image or text. Right pane: the timeline rail + events.
+        gutter = Inches(0.5)
+        left_w = int((W - MARGIN * 2 - gutter) * 0.46)
+        rail_zone_left = MARGIN + left_w + gutter
+        if data.image_id:
+            img_source = _resolve_image(image_registry, data.image_id)
+            place_image_centered(slide, img_source, MARGIN, content_top, left_w, content_h)
+        elif data.text:
+            add_text_box(slide, MARGIN, content_top, left_w, content_h,
+                         sanitize_slide_text(data.text, preserve_markdown=True), theme.font_body, 16,
+                         color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
+                         accent_rgb=accent, bg_rgb=bg_rgb, vertical_center=True)
+    else:
+        rail_zone_left = MARGIN
+
+    items = data.items
+    n_items = len(items)
+    active_idx = data.active_index if data.active_index is not None else -1
+    row_h = content_h / n_items
+    rail_x = rail_zone_left + Inches(0.30)
+    centers = [int(round(content_top + row_h * i + row_h / 2)) for i in range(n_items)]
+
+    # Continuous rail behind the nodes, from first to last center.
+    rail_w = Inches(0.03)
+    add_rect(slide, int(rail_x - rail_w / 2), centers[0], rail_w, centers[-1] - centers[0],
+             fill_color=line_rgb)
+
+    text_x = int(rail_x + Inches(0.45))
+    text_w = W - text_x - MARGIN
+
+    for i, item in enumerate(items):
+        cy = centers[i]
+        active = (i == active_idx)
+        _draw_timeline_node(slide, rail_x, cy, accent, bg_rgb, active)
+
+        block_h = Inches(0.78)
+        block_top = int(cy - block_h / 2)
+        add_text_box(slide, text_x, block_top, text_w, Inches(0.26),
+                     item.fecha, theme.font_body, 11, color=accent, bold=True, align=PP_ALIGN.LEFT)
+        add_text_box(slide, text_x, block_top + Inches(0.28), text_w, Inches(0.50),
+                     item.titulo, theme.font_body, 15, color=txt_color, bold=True,
+                     align=PP_ALIGN.LEFT, word_wrap=True)
+
+    _add_notes(slide, data.notes)
+
+
+def build_section_divider(prs, theme: Theme, data: SectionDividerSlide, image_registry: dict, variant: int = 0):
+    """Section divider: a clean two-tone gradient whose hue varies per impact slide,
+    centered title and subtitle. No decorative shapes."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    c1, c2, angle, txt = _impact_gradient(theme, variant)
+    _apply_gradient_background(slide, c1, c2, angle)
     W, H = prs.slide_width, prs.slide_height
     inner_w = W - MARGIN * 2
-    white = RGBColor(255, 255, 255)
-    near_white = RGBColor(240, 245, 250)
+    secondary = _blend_color(txt, RGBColor(128, 128, 128), 0.25)
     TITLE_H = Inches(1.1)
     SUB_H = Inches(0.65) if data.subtitle else Inches(0)
     GAP = Inches(0.25) if data.subtitle else Inches(0)
     block_h = TITLE_H + GAP + SUB_H
     block_top = int((H - block_h) / 2)
     add_text_box(slide, MARGIN, block_top, inner_w, TITLE_H,
-                 data.title, config.font_heading, 40,
-                 bold=True, color=white, align=PP_ALIGN.CENTER)
+                 data.title, theme.font_heading, 40,
+                 bold=True, color=txt, align=PP_ALIGN.CENTER)
     if data.subtitle:
         add_text_box(slide, MARGIN, block_top + TITLE_H + GAP, inner_w, SUB_H,
-                     data.subtitle, config.font_body, 22,
-                     italic=True, color=near_white, align=PP_ALIGN.CENTER)
+                     data.subtitle, theme.font_body, 22,
+                     italic=True, color=secondary, align=PP_ALIGN.CENTER)
     _add_notes(slide, data.notes)
 
 
-def build_content_text(prs, config: GlobalConfig, data: ContentTextSlide, image_registry: dict):
+def build_stat_highlight(prs, theme: Theme, data: StatHighlightSlide, image_registry: dict, variant: int = 0):
+    """Spotlight a single key figure WITHOUT looking like a chapter opener. Unlike
+    cover/section_divider (full-bleed gradient), this sits on the normal light content
+    background and puts the figure inside a colored KPI "card". That still lands hard
+    (a big number in a bold accent panel) but reads clearly as a highlight WITHIN the
+    current section, not the start of a new one."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg_rgb, txt_color = _resolve_background(config, data.background)
-    accent = hex_to_rgb(config.accent_color)
+    W, H = prs.slide_width, prs.slide_height
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
+    set_slide_background(slide, bg_rgb)
+
+    card_fill = _header_fill(accent)              # deep enough for white text
+    card_txt = _contrast_text_color(card_fill)
+    secondary = _blend_color(txt_color, RGBColor(128, 128, 128), 0.35)
+
+    CARD_W = int((W - MARGIN * 2) * 0.62)
+    CARD_H = Inches(2.5)
+    LABEL_H = Inches(0.6)
+    SUPPORT_H = Inches(0.5) if data.supporting_text else Inches(0)
+    GAP_CARD_LABEL = Inches(0.35)
+    GAP_LABEL_SUPPORT = Inches(0.15)
+    block_h = CARD_H + GAP_CARD_LABEL + LABEL_H + (GAP_LABEL_SUPPORT + SUPPORT_H if data.supporting_text else Inches(0))
+    block_top = int((H - block_h) / 2)
+    card_left = int((W - CARD_W) / 2)
+
+    # The KPI card: a rounded accent panel that frames the figure.
+    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, card_left, block_top, CARD_W, CARD_H)
+    card.fill.solid()
+    card.fill.fore_color.rgb = card_fill
+    card.line.fill.background()
+    card.shadow.inherit = False
+    try:
+        card.adjustments[0] = 0.06
+    except (IndexError, ValueError):
+        pass
+
+    # Scale the figure to "land hard" but fit the card; autofit shrinks long values further.
+    value_size = 170 if len(data.value) <= 4 else (130 if len(data.value) <= 8 else 96)
+    add_text_box(slide, card_left + Inches(0.2), block_top, CARD_W - Inches(0.4), CARD_H,
+                 data.value, theme.font_heading, value_size,
+                 bold=True, color=card_txt, align=PP_ALIGN.CENTER, word_wrap=True,
+                 vertical_center=True, autofit=True)
+
+    y = block_top + CARD_H + GAP_CARD_LABEL
+    add_text_box(slide, MARGIN, y, W - MARGIN * 2, LABEL_H,
+                 data.label, theme.font_body, 24,
+                 bold=True, color=txt_color, align=PP_ALIGN.CENTER, word_wrap=True)
+    if data.supporting_text:
+        y += LABEL_H + GAP_LABEL_SUPPORT
+        add_text_box(slide, MARGIN, y, W - MARGIN * 2, SUPPORT_H,
+                     sanitize_slide_text(data.supporting_text), theme.font_body, 14,
+                     color=secondary, align=PP_ALIGN.CENTER, word_wrap=True)
+    _add_notes(slide, data.notes)
+
+
+def build_content_text(prs, theme: Theme, data: ContentTextSlide, image_registry: dict, variant: int = 0):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    header_bar = _resolve_header_bar(data.style_override, default=True)
+    content_top = _add_accent_title_bar(slide, prs, data.title, theme.font_heading, accent, txt_color, header_bar, bg_rgb)
     content_top += Inches(0.3)  # breathing room below title
     content_h = H - content_top - MARGIN
     add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, content_h,
-                 sanitize_slide_text(data.text, preserve_markdown=True), config.font_body, 15,
+                 sanitize_slide_text(data.text, preserve_markdown=True), theme.font_body, 19,
                  color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
-                 text_style=data.text_style,
-                 accent_rgb=accent, bg_rgb=bg_rgb)
+                 accent_rgb=accent, bg_rgb=bg_rgb, vertical_center=True, autofit=True)
     _add_notes(slide, data.notes)
 
 
-def build_content_latex(prs, config: GlobalConfig, data: ContentLatexSlide, image_registry: dict):
+def build_content_latex(prs, theme: Theme, data: ContentLatexSlide, image_registry: dict, variant: int = 0):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg_rgb, txt_color = _resolve_background(config, data.background)
-    accent = hex_to_rgb(config.accent_color)
+    bg_rgb, txt_color = _resolve_slide_background(theme, data.style_override)
+    accent = hex_to_rgb(theme.accent_color)
     set_slide_background(slide, bg_rgb)
     W, H = prs.slide_width, prs.slide_height
-    content_top = _add_accent_title_bar(slide, prs, data.title, config.font_heading, accent, txt_color, data.header_bar, bg_rgb)
+    header_bar = _resolve_header_bar(data.style_override, default=True)
+    content_top = _add_accent_title_bar(slide, prs, data.title, theme.font_heading, accent, txt_color, header_bar, bg_rgb)
     content_top += Inches(0.3)
     content_h = H - content_top - MARGIN
-    if data.layout == 'split' and data.text:
+    if data.layout == 'split' and data.image_id:
+        # Split layout: equations image on the left, a normal image on the right
+        gutter = Inches(0.4)
+        col_w = int((W - MARGIN * 2 - gutter) / 2)
+        latex_img = _render_latex_to_image(data.latex_lines, bg_rgb, txt_color)
+        place_image_centered(slide, latex_img, MARGIN, content_top, col_w, content_h, valign="center")
+        img_source = _resolve_image(image_registry, data.image_id)
+        place_image_centered(slide, img_source, MARGIN + col_w + gutter, content_top, col_w, content_h, valign="center")
+    elif data.layout == 'split' and data.text:
         # Split layout: descriptive text on the left, equations image on the right
         gutter = Inches(0.4)
         col_w = int((W - MARGIN * 2 - gutter) / 2)
         add_text_box(slide, MARGIN, content_top, col_w, content_h,
-                     sanitize_slide_text(data.text, preserve_markdown=True), config.font_body, 15,
+                     sanitize_slide_text(data.text, preserve_markdown=True), theme.font_body, 16,
                      color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
-                     text_style=data.text_style)
+                     vertical_center=True, autofit=True)
         latex_img = _render_latex_to_image(data.latex_lines, bg_rgb, txt_color)
-        place_image_centered(slide, latex_img, MARGIN + col_w + gutter, content_top, col_w, content_h, valign="top")
+        place_image_centered(slide, latex_img, MARGIN + col_w + gutter, content_top, col_w, content_h, valign="center")
     else:
         # Full layout: optional intro text above, then full-width equations image
         if data.text:
             text_h = Inches(0.65)
             add_text_box(slide, MARGIN, content_top, W - MARGIN * 2, text_h,
-                         sanitize_slide_text(data.text, preserve_markdown=True), config.font_body, 14,
-                         color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True,
-                         text_style=data.text_style)
+                         sanitize_slide_text(data.text, preserve_markdown=True), theme.font_body, 14,
+                         color=txt_color, align=PP_ALIGN.LEFT, word_wrap=True, markdown=True)
             content_top += text_h + Inches(0.15)
             content_h = H - content_top - MARGIN
         latex_img = _render_latex_to_image(data.latex_lines, bg_rgb, txt_color)
-        place_image_centered(slide, latex_img, MARGIN, content_top, W - MARGIN * 2, content_h, valign="top")
+        place_image_centered(slide, latex_img, MARGIN, content_top, W - MARGIN * 2, content_h, valign="center")
     _add_notes(slide, data.notes)
 
 
@@ -1444,7 +1869,21 @@ BUILDERS = {
     "timeline":         build_timeline,
     "two_column":       build_two_column,
     "section_divider":  build_section_divider,
+    "stat_highlight":   build_stat_highlight,
 }
+
+
+def _strip_control_chars(obj):
+    """Recursively remove control characters (except \\t \\n \\r) from all strings in a
+    parsed YAML structure, so YAML escape sequences like \\b/\\f can't leak garbage
+    control bytes into slide text or titles."""
+    if isinstance(obj, str):
+        return _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', obj)
+    if isinstance(obj, dict):
+        return {k: _strip_control_chars(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_strip_control_chars(v) for v in obj]
+    return obj
 
 
 def create_presentation_from_yaml(
@@ -1457,6 +1896,9 @@ def create_presentation_from_yaml(
     # Strip YAML-illegal control characters (\x00-\x08, \x0b-\x1f except \t\n\r)
     yaml_text = _re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', yaml_text)
 
+    # Run the AI pre-processor to fix common AI generation mistakes
+    yaml_text = _preprocess_yaml_text(yaml_text)
+
     try:
         raw = yaml.safe_load(yaml_text)
     except yaml.YAMLError as exc:
@@ -1465,11 +1907,20 @@ def create_presentation_from_yaml(
     if not isinstance(raw, dict):
         raise ValueError("YAML must be a mapping at the top level.")
 
-    # Normalize: if model omitted the 'global' wrapper and put fields at top level
-    if 'global' not in raw and 'accent_color' in raw:
-        global_keys = {'accent_color', 'background_color', 'font_heading', 'font_body'}
-        global_data = {k: raw.pop(k) for k in list(raw) if k in global_keys}
-        raw = {'global': global_data, **raw}
+    # Strip control characters introduced by YAML escape sequences during parsing
+    # (e.g. a double-quoted "\beta" becomes backspace+"eta"). Without this, control
+    # chars survive into titles — which are NOT run through sanitize_slide_text — and
+    # serialize as garbage like "_x0008_eta_1" in the PPTX.
+    raw = _strip_control_chars(raw)
+
+    # The simplified schema has no 'global' block; a legacy/retired 'global' key is
+    # silently dropped (logged) rather than auto-migrated, per the full schema replacement.
+    if 'global' in raw:
+        logger.warning(
+            "Ignoring legacy 'global' block - this tool now uses a single 'theme' field "
+            "instead of global.accent_color/background_color/font_heading/font_body."
+        )
+        raw.pop('global', None)
 
     # Normalize: common alternate names for 'slides'
     if 'slides' not in raw:
@@ -1478,16 +1929,32 @@ def create_presentation_from_yaml(
                 raw['slides'] = raw.pop(alt)
                 break
 
-    schema = PPTXSchema.model_validate(raw)
+    presentation_def = PresentationDefinition.model_validate(raw)
+    theme = THEME_CATALOG[presentation_def.theme]
     prs = Presentation()
     prs.slide_width = Inches(13.333333)
     prs.slide_height = Inches(7.5)
 
-    for slide_data in schema.slides:
+    _IMPACT_TYPES = {"cover", "section_divider", "stat_highlight"}
+    impact_variant = 0
+    for i, slide_data in enumerate(presentation_def.slides):
         builder = BUILDERS.get(slide_data.type)
         if not builder:
-            raise ValueError(f"Slide type not implemented: {slide_data.type}")
-        builder(prs, schema.global_, slide_data, image_registry)
+            logger.warning("Slide %d: type '%s' not implemented, skipping.", i, slide_data.type)
+            continue
+        variant = 0
+        if slide_data.type in _IMPACT_TYPES:
+            variant = impact_variant
+            impact_variant += 1
+        try:
+            builder(prs, theme, slide_data, image_registry, variant)
+        except Exception as slide_e:
+            slide_title = getattr(slide_data, 'title', f'slide {i}')
+            logger.warning(
+                "Slide %d ('%s') failed: %s. Skipping to keep the rest of the presentation intact.",
+                i, slide_title, slide_e,
+            )
+            continue
 
     prs.save(output_buffer)
     output_buffer.seek(0)
@@ -1544,7 +2011,28 @@ def generate_powerpoint_structured_yaml(
         try:
             create_presentation_from_yaml(document_yaml, buffer, image_registry)
         except Exception as exec_e:
-            return {"error": {"message": f"Error generating PowerPoint from YAML: {str(exec_e)}"}}
+            error_msg = str(exec_e)
+            # Add helpful hints based on the error message
+            hints = []
+            if "YAML parse error" in error_msg:
+                hints.append(
+                    "Suggestion: Check for duplicated keys like `title: \"title\": \"value\"` "
+                    "or unquoted bare words in lists like `y: [col1, col2]`. "
+                    "Ensure every list item starts with `- ` (dash + space)."
+                )
+            elif "content_mixed" in error_msg and "image_id" in error_msg:
+                hints.append(
+                    "Suggestion: A content_mixed slide has both image_id AND chart/table. "
+                    "Use ONLY ONE visual element per slide."
+                )
+            elif "charts require" in error_msg:
+                hints.append(
+                    "Suggestion: 'comparison'/'part_of_whole' charts need 'categories' + 'values'; "
+                    "'trend' charts need 'x' + 'y'; 'distribution' charts need 'values'."
+                )
+            if hints:
+                error_msg = error_msg + "\n\n" + "\n".join(hints)
+            return {"error": {"message": f"Error generating PowerPoint from YAML: {error_msg}"}}
 
         buffer.seek(0)
 

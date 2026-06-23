@@ -141,7 +141,7 @@ def _finalize(fig, ax, title: str, xlabel: str, ylabel: str,
         ax.spines["left"].set_color("#CCCCCC")
     fig.tight_layout()
     if save_path:
-        fig.savefig(save_path, bbox_inches="tight")
+        fig.savefig(save_path, bbox_inches="tight", pad_inches=0.2)
         if isinstance(save_path, str):
             print(f"✓ Guardado: {save_path}")
     else:
@@ -326,7 +326,7 @@ def ridge(
     fig.suptitle(title or f"Ridge plot: {x} por {group}", y=1.01)
     fig.tight_layout()
     if save_path:
-        fig.savefig(save_path, bbox_inches="tight")
+        fig.savefig(save_path, bbox_inches="tight", pad_inches=0.2)
         if isinstance(save_path, str):
             print(f"✓ Guardado: {save_path}")
     else:
@@ -705,7 +705,14 @@ def pie(
     labels = df[x].astype(str)
     sizes = df[y]
     fig, ax = plt.subplots(figsize=figsize)
-    ax.pie(sizes, labels=labels, autopct="%.1f%%", colors=sns.color_palette(palette, len(sizes)), startangle=90)
+    # labeldistance pushed out and autopct suppressed on very thin slices so a small
+    # category's label doesn't visually collide with a neighbouring large wedge.
+    total = sum(sizes)
+    def _autopct(pct):
+        return f"{pct:.1f}%" if pct >= 4 else ""
+    ax.pie(sizes, labels=labels, autopct=_autopct if total else "%.1f%%",
+           pctdistance=0.72, labeldistance=1.15,
+           colors=sns.color_palette(palette, len(sizes)), startangle=90)
     ax.axis("equal")
     _finalize(fig, ax, title or f"Pie: {y} por {x}", "", "", save_path)
     return fig, ax

@@ -20,3 +20,13 @@ test_presentation.pptx
 OpenWebUI_Headers.md
 RICH_UI.md
 rich-ui.mdx
+specs/
+.specify/
+.claude/
+# Local render-verification output (from tools/render_pptx.ps1)
+_render_*/
+_render_*.pptx
+test_pptx/
+tools/render_pptx.ps1
+CLAUDE.md
+tests
