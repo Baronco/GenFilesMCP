@@ -42,3 +42,8 @@ include = ["src", "tools", "utils"]
 
 [tool.setuptools.package-data]
 src = ["*.md"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
