@@ -204,6 +204,6 @@ The recommended way is **`Native Mode (Built-in function calling)`**, as it prov
 For optimal results, create a custom agent in Open WebUI:
 
 1. Create a new agent called **AI Assistant**
-2. Use the system prompt from `example/systemprompt.md`
+2. Use the system prompt from `prompts/system_prompt.md`
 3. Set temperature to `0.5` for balanced creativity and accuracy
 4. Enable Tools for the agent and select the GenFiles OpenAPI server, choosing `Native Mode (Built-in function calling)` for better integration.

@@ -1378,37 +1378,61 @@ def _render_latex_to_image(
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
-    cumulative = 0.0
-    for line, weight in zip(sanitized_lines, weights):
-        if line and not (line.startswith('$') and line.endswith('$')):
-            line = f'${line}$'
-        y = 1.0 - (cumulative + weight / 2) / total_weight
-        cumulative += weight
+    # matplotlib parses mathtext LAZILY at draw/savefig time, not when ax.text() is
+    # called — so a single invalid line (e.g. \textbf{...}, an unbalanced brace, or an
+    # unsupported command) would raise inside savefig and blank the ENTIRE equation image.
+    # To stop one bad line from wiping the whole slide, validate each line with the
+    # mathtext parser up front and render any line that fails as plain (non-math) text.
+    from matplotlib import mathtext as _mathtext
+    _math_parser = _mathtext.MathTextParser('path')
+
+    def _to_plain(s: str) -> str:
+        s = _re.sub(r'\$', '', s)
+        for _cmd, _uni in _LATEX_CMD_TO_UNICODE.items():
+            s = s.replace(_cmd, _uni)
+        s = _re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', s)   # \text{x} -> x
+        s = _re.sub(r'\\[a-zA-Z]+', '', s)                  # bare \cmd -> (drop)
+        return s.replace('{', '').replace('}', '').strip()
+
+    def _math_ok(s: str) -> bool:
         try:
-            ax.text(
-                0.02, y, line,
-                transform=ax.transAxes,
-                fontsize=18,
-                color=fg,
-                verticalalignment='center',
-                horizontalalignment='left',
-            )
+            _math_parser.parse(s)
+            return True
         except Exception:
-            plain = _re.sub(r'\$', '', line)
-            plain = _re.sub(r'\\[a-zA-Z]+', '', plain)
-            plain = plain.strip()
-            ax.text(
-                0.02, y, plain,
-                transform=ax.transAxes,
-                fontsize=18,
-                color=fg,
-                verticalalignment='center',
-                horizontalalignment='left',
-                parse_math=False,
-            )
+            return False
+
+    def _draw(plain_only: bool):
+        cumulative = 0.0
+        for line, weight in zip(sanitized_lines, weights):
+            candidate = line
+            if candidate and not (candidate.startswith('$') and candidate.endswith('$')):
+                candidate = f'${candidate}$'
+            y = 1.0 - (cumulative + weight / 2) / total_weight
+            cumulative += weight
+            if not plain_only and candidate and _math_ok(candidate):
+                ax.text(0.02, y, candidate, transform=ax.transAxes, fontsize=18,
+                        color=fg, verticalalignment='center', horizontalalignment='left')
+            else:
+                ax.text(0.02, y, _to_plain(line), transform=ax.transAxes, fontsize=18,
+                        color=fg, verticalalignment='center', horizontalalignment='left',
+                        parse_math=False)
+
+    _draw(plain_only=False)
     buf = BytesIO()
-    fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight',
-                transparent=True, edgecolor='none')
+    try:
+        fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight',
+                    transparent=True, edgecolor='none')
+    except Exception:
+        # Last-resort safety net: re-render every line as plain text so the slide is
+        # never blank, even if a line slipped past validation.
+        ax.clear()
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis('off')
+        _draw(plain_only=True)
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight',
+                    transparent=True, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf
