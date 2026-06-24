@@ -69,6 +69,13 @@ For more detailed installation instructions, see the [Installation Guide](docs/i
 - Review Word documents with AI-generated comments for grammar and idea enhancements.
 - Integrate seamlessly with Open Web UI for file uploads and knowledge management.
 
+> **Authoring skills:** The detailed, per-file-type authoring instructions live in the
+> [`skills/`](skills/) folder as on-demand markdown skills (one per file type: word, powerpoint,
+> excel, pdf, markdown), written in Anthropic's Agent Skills format. The server keeps each tool's
+> description short and generic; load the matching skill in your client when you need the full
+> script template / YAML schema / review workflow. The skills are plain files you carry into the
+> client manually — the server adds no endpoint for them.
+
 ### Examples of Generated Files 📄
 
 #### DOCX Files 📝
