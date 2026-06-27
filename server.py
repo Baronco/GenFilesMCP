@@ -41,7 +41,7 @@ PORT = int(getenv('PORT', '8000'))
 OWUI_API_KEY = (getenv('OWUI_API_KEY') or '').strip() or None
 REVIEWER_AI_ASSISTANT_NAME = getenv('REVIEWER_AI_ASSISTANT_NAME', 'GenFilesMCP')
 KNOWLEDGE_COLLECTION_NAME = getenv('KNOWLEDGE_COLLECTION_NAME', 'My Generated Files').strip()
-POWERPOINT_TEMPLATE, EXCEL_TEMPLATE, WORD_TEMPLATE, MARKDOWN_TEMPLATE, PDF_TEMPLATE, MCP_INSTRUCTIONS = load_md_templates(ENABLE_STRUCTURED_YAML_MODE)
+POWERPOINT_TEMPLATE, EXCEL_TEMPLATE, WORD_TEMPLATE, MARKDOWN_TEMPLATE, PDF_TEMPLATE, MCP_INSTRUCTIONS, WORD_REVIEW_TEMPLATE, FETCH_FILES_TEMPLATE = load_md_templates(ENABLE_STRUCTURED_YAML_MODE)
 ENABLE_CREATE_KNOWLEDGE = getenv('ENABLE_CREATE_KNOWLEDGE', 'true').lower() == 'true'
 
 
@@ -439,7 +439,8 @@ async def generate_word_structured_yaml(
             request_context,
             OWUI_URL,
             ENABLE_CREATE_KNOWLEDGE,
-            KNOWLEDGE_COLLECTION_NAME
+            KNOWLEDGE_COLLECTION_NAME,
+            style_doc=body.style_doc,
         )
         download_html = render_download_button_html(result)
         return download_html if download_html is not None else result
@@ -522,7 +523,7 @@ async def generate_pdf(
 @app.post(
     "/list_docx_elements",
     summary="List DOCX Elements",
-    description="Return the DOCX structure with each element's index, style, and text to help identify target sections before adding comments with the review_docx tool.",
+    description=WORD_REVIEW_TEMPLATE,
     operation_id="list_docx_elements",
 )
 async def full_context_docx(
@@ -543,7 +544,7 @@ async def full_context_docx(
 @app.post(
     "/review_docx",
     summary="Review DOCX Document",
-    description="Review an existing DOCX document and add targeted comments on selected sections to improve spelling, grammar, style, and clarity.",
+    description=WORD_REVIEW_TEMPLATE,
     operation_id="review_docx",
 )
 async def review_docx(
@@ -597,7 +598,7 @@ def extract_files_from_chat(chat_data):
 @app.get(
         "/fetch_uploaded_chat_file_ids",
         summary="Get Chat Attachments",
-        description="Fetch uploaded chat file IDs for context-aware processing: use file IDs for Word review and image IDs for PDF/PPTX/DOCX generation.",
+        description=FETCH_FILES_TEMPLATE,
         operation_id="fetch_uploaded_chat_file_ids",
 )
 async def fetch_uploaded_chat_file_ids(

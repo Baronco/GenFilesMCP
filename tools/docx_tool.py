@@ -130,7 +130,7 @@ def review_docx(file_id, file_name, review_comments, request, URL, ENABLE_CREATE
     except Exception as e:
         return dumps({"error": {"message": str(e)}}, indent=4, ensure_ascii=False)
 
-def generate_word_from_template(doc_metadata, columns_body, doc_dict, file_name, request, URL, ENABLE_CREATE_KNOWLEDGE, knowledge_name):
+def generate_word_from_template(doc_metadata, columns_body, doc_dict, file_name, request, URL, ENABLE_CREATE_KNOWLEDGE, knowledge_name, style_doc="report"):
     """
     Generate a Word document from metadata and a list of sections.
 
@@ -141,13 +141,14 @@ def generate_word_from_template(doc_metadata, columns_body, doc_dict, file_name,
         # Convert Pydantic models to dicts
         metadata_data = doc_metadata.model_dump()
         sections_data = [section if isinstance(section, dict) else section.model_dump(exclude_none=True) for section in doc_dict]
-        
+
         # Create full doc dict
         doc_full = {
             "metadata": metadata_data,
             "sections": sections_data,
             "font": "Times New Roman",  # Default font
-            "columns_body": columns_body
+            "columns_body": columns_body,
+            "style_doc": style_doc,
         }
         
         # Create buffer
