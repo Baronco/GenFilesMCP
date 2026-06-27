@@ -80,6 +80,31 @@ DEFAULT_FIGSIZE  = (10, 6)
 DEFAULT_STYLE    = "ticks"
 DEFAULT_CONTEXT  = "notebook"
 
+# Single-hue sequential ramps used as theme chart palettes. For these, sampling the FULL
+# ramp makes the lightest categories wash out on a white card and crowds neighbours; we
+# instead sample a constrained inner sub-range so colors stay soft yet distinguishable.
+_SEQUENTIAL_RAMPS = {
+    "Blues", "Oranges", "Greys", "Greens", "Purples", "Reds", "YlOrBr",
+    "Blues_r", "Oranges_r", "Greys_r", "Greens_r", "Purples_r", "Reds_r", "YlOrBr_r",
+}
+
+
+def _themed_colors(palette: str, n: int, lo: float = 0.34, hi: float = 0.86):
+    """Return n colors for `n` categories. For single-hue theme ramps, sample the inner
+    sub-range [lo, hi] of the ramp (skip the washed-out lightest and heaviest darkest),
+    keeping adjacent categories distinguishable but soft. Non-ramp/qualitative palettes
+    (e.g. tab10) are returned unchanged."""
+    if n is None or n <= 0:
+        return sns.color_palette(palette)
+    if palette not in _SEQUENTIAL_RAMPS:
+        return sns.color_palette(palette, n)
+    import numpy as _np
+    ramp = sns.color_palette(palette, n_colors=256)
+    m = len(ramp) - 1
+    if n == 1:
+        return [ramp[int(round(((lo + hi) / 2) * m))]]
+    return [ramp[int(round(p * m))] for p in _np.linspace(lo, hi, n)]
+
 
 def _setup(style: str = DEFAULT_STYLE, context: str = DEFAULT_CONTEXT) -> None:
     sns.set_theme(
@@ -679,7 +704,8 @@ def bar(
     """Barras con intervalo de confianza. orient: 'v' vertical | 'h' horizontal."""
     _setup()
     fig, ax = plt.subplots(figsize=figsize)
-    kw = dict(data=df, hue=hue, palette=palette,
+    n_cat = df[hue].nunique() if hue else df[x].nunique()
+    kw = dict(data=df, hue=hue, palette=_themed_colors(palette, n_cat),
               errorbar=("ci", ci) if ci else None, ax=ax)
     if orient == "h":
         sns.barplot(x=y, y=x, **kw)
@@ -712,7 +738,7 @@ def pie(
         return f"{pct:.1f}%" if pct >= 4 else ""
     ax.pie(sizes, labels=labels, autopct=_autopct if total else "%.1f%%",
            pctdistance=0.72, labeldistance=1.15,
-           colors=sns.color_palette(palette, len(sizes)), startangle=90)
+           colors=_themed_colors(palette, len(sizes)), startangle=90)
     ax.axis("equal")
     _finalize(fig, ax, title or f"Pie: {y} por {x}", "", "", save_path)
     return fig, ax

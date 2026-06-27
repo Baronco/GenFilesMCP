@@ -35,7 +35,7 @@ Use this tool to create a PowerPoint presentation from a structured YAML definit
 A presentation has exactly two top-level keys: `theme` (one named style for the whole deck)
 and `slides` (an ordered list). There is no per-slide background, header bar, or text-style
 field to decide — every slide looks professional from the theme alone. Use `style_override`
-only on the rare slide that needs to deviate from the theme.
+only on the rare slide that needs the more minimal title (`header_bar: false`).
 
 ## Canonical example
 
@@ -164,22 +164,28 @@ active theme's palette automatically; there is no `palette`, `type`, or `kind` f
 
 ## Optional: style_override (advanced — most slides don't need this)
 
-Only add `style_override` to a slide that must deviate from the active theme. Everything
-else about that slide stays normal; every other slide in the deck is unaffected.
+Only add `style_override` to a slide that needs the minimal title style. The only field that
+has an effect is `header_bar`:
 
 ```yaml
 - type: content_text
-  title: "Brand-specific Slide"
+  title: "Slide with a minimal title"
   text: "..."
   style_override:
-    background: "#0B5FFF"   # explicit hex, or "accent_color" / "background_color"
-    header_bar: false       # true | false
+    header_bar: false       # true (default) = accent tab + title + rule; false = title + rule only
 ```
 
-Available on: `content_text`, `content_image`, `content_mixed`, `content_latex`,
-`two_column`, `timeline`. Not available on `cover`/`section_divider` (they always use the
-theme's gradient background by design). On `stat_highlight`, only `background` can be
-overridden (replaces the gradient with a flat color); `header_bar` does not apply.
+- `header_bar: true` (default) renders the title with a small accent tab; `header_bar: false`
+  drops the tab for an even more minimal title. Both keep the clean theme look.
+- **`background` is deprecated and ignored.** Custom per-slide backgrounds were removed so the
+  whole deck stays cohesive (light, on-theme). It is still accepted in YAML (old decks don't
+  break) but has no visual effect. To make a slide stand out as a "moment", use a `cover`,
+  `section_divider`, or `stat_highlight` slide instead — those are the theme's built-in,
+  harmonized impact slides.
+
+`header_bar` is available on: `content_text`, `content_image`, `content_mixed`,
+`content_latex`, `two_column`, `timeline`. It does not apply to `cover` / `section_divider` /
+`stat_highlight` (they have their own fixed layouts).
 
 ---
 
