@@ -1,12 +1,11 @@
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.section import WD_SECTION_START
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 import math2docx
 import os
-import numpy as np
 from utils.download_file import download_file
 from utils.authorization import _get_bearer_token
 from utils.img_dimensions import img_dimensions
@@ -42,70 +41,7 @@ def _sanitize_latex_for_docx(latex: str) -> str:
 
 logger = get_logger(__name__)
 
-def vertical_center(metadata_dict: dict, doc: Document) -> int:
-    """
-    Estimate how many empty lines are needed to vertically center cover metadata.
 
-    The function approximates text height using predefined font-size heuristics
-    and page margins from the first document section.
-
-    Args:
-        metadata_dict (dict): Cover metadata containing keys such as title,
-            subtitle, description, author, month, and year.
-        doc (Document): Target python-docx document used to read page metrics.
-
-    Returns:
-        int: Number of empty lines to insert before cover content.
-    """
-    # Constantes
-    EMU_INCH = 914400
-    CHAR_WIDTH_FACTOR = 0.7  # Ancho promedio de cada carácter como fracción del tamaño de la fuente
-    DEFAULT_LINE_HEIGHT = 0.1667  # Altura de línea en pulgadas (12 pt)
-
-    # Tamaños de fuente por clave (en pulgadas)
-    font_sizes = {
-        'title': 0.5,
-        'subtitle': DEFAULT_LINE_HEIGHT,
-        'description': DEFAULT_LINE_HEIGHT,
-        'author': DEFAULT_LINE_HEIGHT,
-        'month': DEFAULT_LINE_HEIGHT,
-        'year': DEFAULT_LINE_HEIGHT,
-    }
-
-    # Dimensiones de página y márgenes (en pulgadas)
-    section = doc.sections[0]
-    page_height = section.page_height / EMU_INCH
-    page_width = section.page_width / EMU_INCH
-    top_margin = section.top_margin / EMU_INCH
-    bottom_margin = section.bottom_margin / EMU_INCH
-    left_margin = section.left_margin / EMU_INCH
-    right_margin = section.right_margin / EMU_INCH
-
-    # Ancho útil de página
-    useful_width = page_width - left_margin - right_margin
-
-    # Calcular espacio vertical total usado
-    total_vertical_space_used = 0.0
-    keys = ['title', 'subtitle', 'description', 'author', 'month', 'year']
-
-    for key in keys:
-        text = metadata_dict.get(key, "")
-        length = len(text)
-        font_size = font_sizes.get(key, DEFAULT_LINE_HEIGHT)
-        text_width = length * font_size * CHAR_WIDTH_FACTOR
-        lines_used = int(np.ceil(text_width / useful_width)) if useful_width > 0 else 1
-        # Espacio vertical: líneas * altura de línea + interlineado extra
-        space_used = lines_used * font_size + max(0, lines_used - 1) * font_size
-        total_vertical_space_used += space_used
-
-    # Espacio restante y líneas vacías
-    useful_height = page_height - top_margin - bottom_margin
-    remaining_space = (useful_height - total_vertical_space_used) / 2
-    empty_lines = np.ceil(remaining_space / (2 * DEFAULT_LINE_HEIGHT))  # Manteniendo la lógica original
-
-    logger.info(f"=> Vertical centering calculated.")
-
-    return int(empty_lines)
 def parse_markdown_text(text):
     """
     Parse a text string with simple Markdown emphasis into styled segments.
@@ -132,6 +68,18 @@ def parse_markdown_text(text):
         else:
             segments.append({'text': part, 'bold': False, 'italic': False})
     return segments
+
+def _set_section_vertical_alignment(section, value: str) -> None:
+    """Set a section's vertical text alignment via the `w:vAlign` element
+    ('center' | 'top' | 'both' | 'bottom'). Word centers the page content natively, which is
+    far more reliable than padding the cover with a guessed number of empty paragraphs."""
+    sectPr = section._sectPr
+    for existing in sectPr.findall(qn('w:vAlign')):
+        sectPr.remove(existing)
+    v_align = OxmlElement('w:vAlign')
+    v_align.set(qn('w:val'), value)
+    sectPr.append(v_align)
+
 
 def build_docx_from_dict(doc_dict, buffer, request, URL):
     """
@@ -162,6 +110,11 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
     # Sort sections by index_element
     sections_data.sort(key=lambda x: x.get("index_element", 0))
     font = doc_dict.get("font", "Times New Roman")
+    # Document style drives the per-style formatting; columns are derived from it upstream.
+    style_doc = str(doc_dict.get("style_doc", "report")).strip().lower()
+    if style_doc not in ("ieee", "report"):
+        style_doc = "report"
+    is_ieee = style_doc == "ieee"
     columns_body = doc_dict.get("columns_body", 1)
     columns_body = int(columns_body)
     if columns_body > 2:
@@ -171,63 +124,64 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
 
     doc = Document()
 
-    if str(metadata_data.get("page_break", False)).lower() == "true":
-        empty_lines = vertical_center(metadata_data, doc)
-
-    # Parrafos para centrar verticalmente no están soportados en python-docx/DOCX
-    if str(metadata_data.get("page_break", False)).lower() == "true":
-        for _ in range(empty_lines):
-            doc.add_paragraph("")
-    
     # Aplicar metadata como portada centrada horizontalmente
+    # Cover: horizontally centered, with proper point sizes so the title is centered and
+    # correctly sized (the old Inches(0.5) ≈ 36pt read oversized and threw off the look).
     meta = metadata_data
     if "title" in meta:
         title = doc.add_paragraph(meta["title"].replace("*", ""))
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if title.runs:
             title.runs[0].bold = True
-            title.runs[0].font.size = Inches(0.5)  # Tamaño grande para título
+            title.runs[0].font.size = Pt(24)  # Título: grande pero proporcionado
             title.runs[0].font.name = font  # Usar font global
     if "subtitle" in meta:
         subtitle = doc.add_paragraph(meta["subtitle"].replace("*", ""))
         subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if subtitle.runs:
             subtitle.runs[0].italic = True
-            subtitle.runs[0].font.size = Inches(0.1667)  # Tamaño mediano para subtítulo
+            subtitle.runs[0].font.size = Pt(14)  # Subtítulo
             subtitle.runs[0].font.name = font
     if "description" in meta:
         desc = doc.add_paragraph(meta["description"].replace("*", ""))
         desc.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if desc.runs:
-            desc.runs[0].font.size = Inches(0.1667)  
+            desc.runs[0].font.size = Pt(11)
             desc.runs[0].font.name = font
     if "author" in meta:
         author = doc.add_paragraph(f"Autor: {meta['author'].replace('*','')}")
         author.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if author.runs:
-            author.runs[0].font.size = Inches(0.1667)
+            author.runs[0].font.size = Pt(11)
             author.runs[0].font.name = font
     if "month" in meta and "year" in meta:
         date = doc.add_paragraph(f"{meta['month'].replace("*", "")} {meta['year'].replace("*", "")}")
         date.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if date.runs:
-            date.runs[0].font.size = Inches(0.1667)
+            date.runs[0].font.size = Pt(11)
             date.runs[0].font.name = font
-    # Nota: La alineación vertical de página no está soportada en python-docx/DOCX
-    # Gestionar salto de página y columnas
+    # Page break + columns. When the cover gets its own page (page_break), isolate it in its
+    # own section and let Word center it vertically (vAlign=center) — this centers the cover
+    # correctly regardless of the title/font sizes. The body then starts top-aligned on a new
+    # page (and in two columns for the IEEE style).
     page_break_requested = str(metadata_data.get("page_break", False)).lower() == "true"
+    has_body = len(sections_data) > 0
 
-    if columns_body > 1:
-        # Si hay columnas, usamos el section break para controlar el salto de página
-        section_type = WD_SECTION_START.NEW_PAGE if page_break_requested else WD_SECTION_START.CONTINUOUS
-        new_section = doc.add_section(start_type=section_type)
-        sectPr = new_section._sectPr
-        cols = OxmlElement('w:cols')
-        cols.set(qn('w:num'), str(columns_body))
-        sectPr.append(cols)
-    elif page_break_requested:
-        # Si no hay columnas pero sí salto, usamos salto manual
-        doc.add_page_break()
+    def _apply_columns(section):
+        if columns_body > 1:
+            cols = OxmlElement('w:cols')
+            cols.set(qn('w:num'), str(columns_body))
+            section._sectPr.append(cols)
+
+    if page_break_requested:
+        _set_section_vertical_alignment(doc.sections[0], 'center')  # center the cover page
+        if has_body:
+            body_section = doc.add_section(start_type=WD_SECTION_START.NEW_PAGE)
+            _set_section_vertical_alignment(body_section, 'top')    # body reads top-down
+            _apply_columns(body_section)
+    elif columns_body > 1:
+        # No page break, but two columns: a continuous section break flows the body in columns.
+        _apply_columns(doc.add_section(start_type=WD_SECTION_START.CONTINUOUS))
     
     # Contadores para numeración automática de captions
     figure_counter = 1
@@ -244,15 +198,25 @@ def build_docx_from_dict(doc_dict, buffer, request, URL):
         
         if item_type in ("ParagraphHeader", "header") or ("text" in item and "level" in item):  # ParagraphHeader
             current_paragraph = None  # Reset paragraph
-            heading = doc.add_heading(item["text"], level=item.get("level", 2))
-            heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            level = item.get("level", 2)
+            heading = doc.add_heading(item["text"], level=level)
+            # Heading alignment per style: report → left (informe look); IEEE → level-1
+            # section heads centered (article convention), deeper levels left-aligned.
+            if is_ieee and level <= 1:
+                heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            else:
+                heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
             if heading.runs:
                 heading.runs[0].font.name = font
         
         elif item_type in ("ParagraphBody", "paragraph") or (item_type is None and "text" in item and "bold" not in item):  # ParagraphBody
             if current_paragraph is None:
                 current_paragraph = doc.add_paragraph()
-                current_paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY 
+                current_paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                # IEEE article style indents the first line of body paragraphs (incl. the
+                # opening one). Report keeps paragraphs flush-left for a clean informe look.
+                if is_ieee:
+                    current_paragraph.paragraph_format.first_line_indent = Inches(0.2)
             segments = parse_markdown_text(item.get("text", ""))
             for seg in segments:
                 run = current_paragraph.add_run(seg['text'])

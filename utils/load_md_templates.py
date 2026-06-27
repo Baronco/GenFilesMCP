@@ -4,13 +4,15 @@ from importlib import resources
 
 logger = get_logger(__name__)
 
-def load_md_templates(enable_structured_yaml_mode: bool=False) -> tuple[str, str, str, str, str, str, str]:
+def load_md_templates(enable_structured_yaml_mode: bool=False) -> tuple[str, str, str, str, str, str, str, str]:
     """
-    Load Markdown templates for PowerPoint, Excel, Word, YAML Word, Markdown, PDF and MCP instructions.
+    Load Markdown templates used as the tool/endpoint descriptions.
 
     Returns:
-        tuple[str, str, str, str, str, str, str]: A tuple containing the Markdown templates for
-                                                   PowerPoint, PowerPoint YAML, Excel, Word, Markdown, PDF and the MCP instructions.
+        tuple: (POWERPOINT_TEMPLATE, EXCEL_TEMPLATE, WORD_TEMPLATE, MARKDOWN_TEMPLATE,
+                PDF_TEMPLATE, MCP_INSTRUCTIONS, WORD_REVIEW_TEMPLATE, FETCH_FILES_TEMPLATE).
+        The Word/PowerPoint templates switch between the YAML and Python descriptions
+        based on `enable_structured_yaml_mode`.
     """
 
     try:
@@ -41,6 +43,12 @@ def load_md_templates(enable_structured_yaml_mode: bool=False) -> tuple[str, str
         with resources.files("src").joinpath("mcp_instructions.md").open("r", encoding="utf-8") as f:
             MCP_INSTRUCTIONS = f.read()
 
+        with resources.files("src").joinpath("word_review.md").open("r", encoding="utf-8") as f:
+            WORD_REVIEW_TEMPLATE = f.read()
+
+        with resources.files("src").joinpath("fetch_files.md").open("r", encoding="utf-8") as f:
+            FETCH_FILES_TEMPLATE = f.read()
+
         logger.info("=> Markdown templates loaded successfully.")
 
         return (
@@ -49,7 +57,9 @@ def load_md_templates(enable_structured_yaml_mode: bool=False) -> tuple[str, str
             WORD_TEMPLATE,
             MARKDOWN_TEMPLATE,
             PDF_TEMPLATE,
-            MCP_INSTRUCTIONS
+            MCP_INSTRUCTIONS,
+            WORD_REVIEW_TEMPLATE,
+            FETCH_FILES_TEMPLATE
         )
     
     except Exception as e:
