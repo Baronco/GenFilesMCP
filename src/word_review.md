@@ -1,16 +1,17 @@
-Review an existing Word (.docx) document by adding targeted comments (spelling, grammar, style, clarity). This is a **two-step workflow** over a document the user uploaded in the chat.
+Review an uploaded Word (.docx) by adding comments (spelling, grammar, style, clarity). Two steps.
 
-**Step 0 — get the document's file ID:** call `fetch_uploaded_chat_file_ids` to obtain the uploaded `.docx` `file_id` and its original name. The `file_id` is the value you pass to the review tools below.
+## Steps
+1. Get the `file_id`: call `fetch_uploaded_chat_file_ids`.
+2. `list_docx_elements` (`file_id`, `file_name`) → returns each element's `index`, style, and text.
+3. `review_docx` (`file_id`, `file_name`, `review_comments`) → adds the comments.
 
-**Step 1 — inspect the structure (`list_docx_elements`):** call with `file_id` and `file_name`. It returns each element's **index**, style, and text. Use the indexes to decide which elements to comment on.
-
-**Step 2 — add comments (`review_docx`):** call with `file_id`, `file_name`, and `review_comments` = a list of `{"index": <int>, "comment": <str>}` objects, where `index` is an element index from Step 1. Example:
-
+## review_comments
+A list of `{"index": int, "comment": str}`:
 ```json
-[{"index": 0, "comment": "Fix typo: 'teh' -> 'the'"},
- {"index": 5, "comment": "This sentence is unclear; consider splitting it."}]
+[{"index": 0, "comment": "Typo: 'teh' -> 'the'"}, {"index": 5, "comment": "Unclear; split this sentence."}]
 ```
 
-- Only comment where it genuinely improves the document; keep each comment specific and actionable.
-- `index` must come from the `list_docx_elements` output for the **same** document.
-- When the review is saved, the chat UI shows a download button for the reviewed file.
+## Rules
+- `index` must come from `list_docx_elements` for the SAME document.
+- Comment only where it helps; keep each comment specific and actionable.
+- On success the chat shows a download button for the reviewed file automatically — never write or invent a download link.

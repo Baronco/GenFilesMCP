@@ -586,7 +586,7 @@ def extract_files_from_chat(chat_data):
             files.append({
                 # "message_id": message_id,
                 "file_id": file_info.get("id"),
-                #"file_name": file_info.get("name"),
+                "file_name": file_info.get("name"),
                 # "type": file_info.get("type"),
                 # "url": file_info.get("url"),
                 # "content_type": file_info.get("content_type")

@@ -293,6 +293,41 @@ class ChartData(BaseModel):
         "auto", "int", "float1", "percent", "thousands", "currency",
     ]] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_intent(cls, data):
+        """Be forgiving about `intent`. Models often put a chart_type value (e.g. 'scatter')
+        in `intent`, or vary its case. Normalize valid intents; when `intent` is a chart_type
+        or unknown, move it to `chart_type` and pick the intent from the DATA shape so the deck
+        never hard-fails on this confusion."""
+        if not isinstance(data, dict):
+            return data
+        valid = {"comparison", "trend", "distribution", "part_of_whole"}
+        intent = data.get("intent")
+        if isinstance(intent, str) and intent.strip().lower() in valid:
+            data["intent"] = intent.strip().lower()   # normalize case/whitespace
+            return data
+        v = intent.strip().lower() if isinstance(intent, str) else None
+        if v and v in EXECUTIVE_CHART_TYPES:
+            data.setdefault("chart_type", v)          # author put a shape name in `intent`
+        ct = (data.get("chart_type") or "").strip().lower()
+        if data.get("x") and data.get("y"):
+            data["intent"] = "trend"
+        elif ct in ("pie", "doughnut"):
+            data["intent"] = "part_of_whole"
+        elif ct == "hist":
+            data["intent"] = "distribution"
+        elif data.get("categories") and (data.get("values") or data.get("series")):
+            data["intent"] = "comparison"
+        elif data.get("values") or data.get("series"):
+            data["intent"] = "comparison"
+        else:
+            data["intent"] = "comparison"
+        if intent is not None and str(intent).strip().lower() != data["intent"]:
+            logger.warning("chart.intent '%s' coerced to '%s' (chart_type=%s).",
+                           intent, data["intent"], data.get("chart_type") or "default")
+        return data
+
     @model_validator(mode="after")
     def validate_chart(self):
         # `series` is an alternate data source: when present it satisfies the value
@@ -2085,6 +2120,25 @@ def _strip_control_chars(obj):
     return obj
 
 
+# A LaTeX line in a DOUBLE-quoted YAML scalar (e.g. latex_lines: - "$\lim ...$") fails to
+# parse: YAML reads backslashes as escapes (\l, \f, \t ...). Recovery: convert double-quoted
+# scalars that contain a backslash to SINGLE quotes (literal backslashes), doubling any inner
+# apostrophe. Runs ONLY after a parse failure, so it never touches a document that already
+# parses (e.g. the valid single-quoted or double-backslash forms).
+_DQ_WITH_BACKSLASH_RE = _re.compile(r'"([^"\n]*\\[^"\n]*)"')
+
+_LATEX_HINT_PPTX = (
+    " Hint: put latex_lines (and any value with backslashes) in SINGLE quotes so YAML keeps "
+    "them literal, e.g. - '$\\lim_{h \\to 0} \\frac{a}{b}$'. In DOUBLE quotes, \\l, \\f, \\t "
+    "are read as escape sequences and break the YAML."
+)
+
+
+def _coerce_backslash_dq_to_sq(text: str) -> str:
+    """Rewrite double-quoted scalars containing a backslash as single-quoted (literal)."""
+    return _DQ_WITH_BACKSLASH_RE.sub(lambda m: "'" + m.group(1).replace("'", "''") + "'", text)
+
+
 def create_presentation_from_yaml(
     yaml_text: str,
     output_buffer,
@@ -2101,7 +2155,17 @@ def create_presentation_from_yaml(
     try:
         raw = yaml.safe_load(yaml_text)
     except yaml.YAMLError as exc:
-        raise ValueError(f"YAML parse error: {exc}") from exc
+        # Most common cause: LaTeX in double-quoted latex_lines. Retry once after coercing
+        # those scalars to single quotes; if it still fails, surface an actionable hint.
+        coerced = _coerce_backslash_dq_to_sq(yaml_text)
+        if coerced != yaml_text:
+            try:
+                raw = yaml.safe_load(coerced)
+                logger.info("Recovered PPTX YAML after coercing double-quoted LaTeX to single quotes.")
+            except yaml.YAMLError:
+                raise ValueError(f"YAML parse error: {exc}.{_LATEX_HINT_PPTX}") from exc
+        else:
+            raise ValueError(f"YAML parse error: {exc}.{_LATEX_HINT_PPTX}") from exc
 
     if not isinstance(raw, dict):
         raise ValueError("YAML must be a mapping at the top level.")
