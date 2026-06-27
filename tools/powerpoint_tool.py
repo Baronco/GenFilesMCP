@@ -12,7 +12,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.dml.color import RGBColor
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
-from utils.charts import chart
+from utils.charts import slide_chart, EXECUTIVE_CHART_TYPES
 from PIL import Image as PILImage
 from utils.download_file import download_file
 from utils.upload_file import upload_file
@@ -249,10 +249,27 @@ class ContentTextSlide(BaseModel):
     notes: Optional[str] = None
 
 
+class ChartSeries(BaseModel):
+    """One named data series sharing a chart's category/X axis. Used to express
+    grouped/stacked/multi-line/combo charts. `kind`/`axis` only matter for `combo`
+    (which series is a bar vs a line, and which Y axis it uses); they are ignored
+    by every other chart type. See specs/004-executive-charts/."""
+    name: str
+    values: List[float]
+    kind: Optional[Literal["bar", "line", "area"]] = None
+    axis: Optional[Literal["primary", "secondary"]] = "primary"
+
+
 class ChartData(BaseModel):
-    """A chart expressed as one of four visualization intents instead of a low-level
-    chart kind. The system maps each intent internally to the appropriate rendering
-    in utils/charts.py and applies the active theme's chart palette automatically."""
+    """A chart expressed as one of four visualization intents. By default each intent
+    maps to a sensible chart (comparison->bar, trend->line, distribution->hist,
+    part_of_whole->pie) with the active theme's palette applied automatically.
+
+    Optionally, an author may name an explicit `chart_type` (executive-core set:
+    bar, stacked_bar, stacked_bar_100, line, area, stacked_area, pie, doughnut,
+    scatter, bubble, combo, waterfall), supply multiple named `series`, label the
+    axes, and tune the presentation. Every one of these is OPTIONAL and additive —
+    a chart with only an intent (+ its required data) renders exactly as before."""
     intent: Literal["comparison", "trend", "distribution", "part_of_whole"]
     title: Optional[str] = None
     categories: Optional[List[str]] = None
@@ -260,24 +277,59 @@ class ChartData(BaseModel):
     x: Optional[List[float]] = None
     y: Optional[List[float]] = None
 
+    # --- new, all optional/additive (feature 004) ---
+    # Permissive on purpose: an unrecognized chart_type must NOT fail the deck — it is
+    # normalized to None (intent default) with a warning in the validator (FR-014/SC-007).
+    # Valid executive-core values: bar, stacked_bar, stacked_bar_100, line, area,
+    # stacked_area, pie, doughnut, scatter, bubble, combo, waterfall.
+    chart_type: Optional[str] = None
+    series: Optional[List[ChartSeries]] = None
+    x_label: Optional[str] = None
+    y_label: Optional[str] = None
+    y2_label: Optional[str] = None
+    value_labels: Optional[bool] = None
+    legend: Optional[bool] = None
+    value_format: Optional[Literal[
+        "auto", "int", "float1", "percent", "thousands", "currency",
+    ]] = None
+
     @model_validator(mode="after")
     def validate_chart(self):
+        # `series` is an alternate data source: when present it satisfies the value
+        # requirement (the shared axis still comes from categories/x). Validation stays
+        # permissive — normalize/truncate rather than reject, so one odd chart never
+        # fails the whole deck.
+        # Normalize an unrecognized chart_type to None (fall back to the intent default)
+        # rather than rejecting it — one odd value must never fail the whole deck.
+        if self.chart_type:
+            ct = self.chart_type.strip().lower()
+            if ct not in EXECUTIVE_CHART_TYPES:
+                logger.warning("Unknown chart_type '%s'; using the intent default instead.", self.chart_type)
+                self.chart_type = None
+            else:
+                self.chart_type = ct
+        # Data requirement is permissive: a chart is valid as long as it has SOME data —
+        # either the intent's classic fields OR a `series` list. The shared axis
+        # (categories/x) is recommended but optional; when absent it's synthesized as a
+        # numeric index at render time. This keeps an LLM-authored deck from failing just
+        # because it put the values in `series` and forgot the axis.
+        has_series = bool(self.series)
         if self.intent in ("comparison", "part_of_whole"):
-            if not self.categories or not self.values:
+            if not (self.values or has_series):
                 raise ValueError(f"'{self.intent}' charts require 'categories' and 'values'.")
-            if len(self.categories) != len(self.values):
+            if self.values and self.categories and len(self.categories) != len(self.values):
                 min_len = min(len(self.categories), len(self.values))
                 self.categories = self.categories[:min_len]
                 self.values = self.values[:min_len]
         elif self.intent == "trend":
-            if not self.x or not self.y:
+            if not ((self.x and self.y) or has_series or (self.x and self.values)):
                 raise ValueError("'trend' charts require 'x' and 'y'.")
-            if len(self.x) != len(self.y):
+            if self.x and self.y and len(self.x) != len(self.y):
                 min_len = min(len(self.x), len(self.y))
                 self.x = self.x[:min_len]
                 self.y = self.y[:min_len]
         elif self.intent == "distribution":
-            if not self.values:
+            if not (self.values or has_series):
                 raise ValueError("'distribution' charts require 'values'.")
         return self
 
@@ -978,7 +1030,7 @@ def _autofit_font_size(text: str, base_size: int, width_emu: int, height_emu: in
     lines = (text or "").replace("\\n", "\n").splitlines()
     n_paras = max(1, len([l for l in lines if l.strip()]))
     size = base_size
-    while size > 12:
+    while size > 9:
         chars_per_line = max(1, int(width_in * 142 / size))  # ~avg Calibri glyph width
         wrapped = 0.0
         for l in lines:
@@ -1021,7 +1073,13 @@ def add_text_box(
     # Pre-shrink long body text so it fits even in renderers that don't apply PowerPoint's
     # autofit lazily. Heuristic on raw text length; PowerPoint's normAutofit refines further.
     if autofit and text:
+        _base_size = font_size
         font_size = _autofit_font_size(text, font_size, width, height)
+        if font_size < _base_size:
+            # The content had to shrink => it's dense. Anchor to the TOP so any residual
+            # overflow spills downward and never rides up over the title/header. (Vertical
+            # centering is only nice for SHORT content that comfortably fits.)
+            vertical_center = False
 
     def _apply_autofit(tf):
         if autofit:
@@ -1227,57 +1285,111 @@ _INTENT_TO_CHART_KIND = {
     "part_of_whole": "pie",
 }
 
+#: Chart types that need numeric X and Y (a category axis can't drive them).
+_NEEDS_NUMERIC_XY = {"scatter", "bubble"}
+
+
+def _resolve_chart_type(chart_def: ChartData) -> str:
+    """Resolve the effective executive chart type: an explicit, compatible `chart_type`
+    wins; otherwise fall back to the intent default. Unknown or data-incompatible types
+    degrade gracefully (intent default) with a warning so a single chart never fails the
+    deck (FR-014)."""
+    default = _INTENT_TO_CHART_KIND[chart_def.intent]
+    ct = chart_def.chart_type
+    if not ct:
+        return default
+    if ct not in EXECUTIVE_CHART_TYPES:
+        logger.warning("Unknown chart_type '%s'; falling back to intent default '%s'.", ct, default)
+        return default
+    if ct in _NEEDS_NUMERIC_XY and not (chart_def.x and chart_def.y):
+        logger.warning("chart_type '%s' needs numeric x and y; falling back to '%s'.", ct, default)
+        return default
+    return ct
+
+
+def _chart_series(chart_def: ChartData) -> list:
+    """Normalize a ChartData into a list of {name, values, kind, axis} series, aligned to
+    the shared category/X axis. Multiple `series` win; otherwise a single series is built
+    from `values`/`y`. Lengths are aligned/truncated, never rejected (FR-010)."""
+    axis_len = None
+    if chart_def.categories is not None:
+        axis_len = len(chart_def.categories)
+    elif chart_def.x is not None:
+        axis_len = len(chart_def.x)
+    elif chart_def.series:
+        # No explicit shared axis: align every series to the longest one.
+        axis_len = max((len(s.values) for s in chart_def.series), default=0)
+
+    def _clip(vals):
+        # Align every series to the shared axis: truncate longer, pad shorter with 0.0,
+        # so unequal-length series render predictably instead of erroring (FR-010).
+        if axis_len is None or vals is None:
+            return vals
+        if len(vals) >= axis_len:
+            return vals[:axis_len]
+        return list(vals) + [0.0] * (axis_len - len(vals))
+
+    if chart_def.series:
+        return [{"name": s.name, "values": _clip(list(s.values)),
+                 "kind": s.kind, "axis": s.axis} for s in chart_def.series]
+    single = chart_def.values if chart_def.values is not None else chart_def.y
+    return [{"name": "", "values": _clip(list(single or []))}]
+
 
 def _render_chart_image(chart_def: ChartData, palette: str, width, height):
-    """Render one of the four visualization intents using the existing seaborn/matplotlib
-    backend in utils/charts.py. The theme's chart_palette is always applied; the LLM
-    never selects a low-level chart kind or palette directly."""
-    kind = _INTENT_TO_CHART_KIND[chart_def.intent]
-
-    # Use the slide's chart title if given, else NO title (a single space suppresses the
-    # backend's ugly auto-generated "Barras: value por category" default). Axis labels are
-    # blanked too — the category names already appear on the axis, so "category"/"value"
-    # are noise that looks unprofessional.
-    kwargs = {
-        "save_path": None,
-        "palette": palette,
-        "title": chart_def.title if chart_def.title else " ",
-        "xlabel": " ",
-        "ylabel": " ",
-    }
-
-    if chart_def.intent in ("comparison", "part_of_whole"):
-        df = pd.DataFrame({"category": chart_def.categories, "value": chart_def.values})
-        kwargs["x"] = "category"
-        kwargs["y"] = "value"
-    elif chart_def.intent == "trend":
-        df = pd.DataFrame({"x": chart_def.x, "y": chart_def.y})
-        kwargs["x"] = "x"
-        kwargs["y"] = "y"
-    else:  # distribution
-        df = pd.DataFrame({"value": chart_def.values})
-        kwargs["x"] = "value"
-
+    """Render a chart for a slide via the executive renderer in utils/charts.py. The
+    theme's chart_palette is always applied. By default each intent maps to a sensible
+    chart and gets meeting-ready polish (value labels on bars, 45° category rotation,
+    legend when multi-series). An explicit `chart_type`, `series`, axis labels, and the
+    presentation flags refine it — all optional. Axis names are only drawn when provided,
+    so unlabeled charts stay clean (no 'category'/'value' noise)."""
     from matplotlib import pyplot as plt
 
-    buf = BytesIO()
-    kwargs["save_path"] = buf
-    result = chart(kind, df, **kwargs)
+    chart_type = _resolve_chart_type(chart_def)
+    series = _chart_series(chart_def)
 
-    if hasattr(result, "figure"):
-        plt.close(result.figure)
-    elif isinstance(result, tuple):
-        first = result[0]
-        if hasattr(first, "figure"):
-            plt.close(first.figure)
-        elif isinstance(first, plt.Figure):
-            plt.close(first)
-        else:
-            plt.close('all')
+    # The shared axis: categories for categorical charts, numeric x for trend/scatter.
+    labels = chart_def.categories
+    x = chart_def.x
+    sizes = chart_def.values if chart_type == "bubble" else None  # bubble size = `values`
+
+    buf = BytesIO()
+    try:
+        result = slide_chart(
+            chart_type,
+            palette=palette,
+            title=chart_def.title or "",
+            labels=labels,
+            x=x,
+            series=series,
+            sizes=sizes,
+            x_label=chart_def.x_label or "",
+            y_label=chart_def.y_label or "",
+            y2_label=chart_def.y2_label or "",
+            value_labels=chart_def.value_labels,
+            legend=chart_def.legend,
+            value_format=chart_def.value_format,
+            save_path=buf,
+        )
+    except Exception as exc:
+        # Last-resort safety net: never let one chart abort the deck. Fall back to a
+        # plain bar/line of the intent's data.
+        logger.warning("Executive chart '%s' failed (%s); rendering a safe fallback.", chart_type, exc)
+        plt.close("all")
+        buf = BytesIO()
+        fallback = "line" if chart_def.intent == "trend" else "bar"
+        result = slide_chart(
+            fallback, palette=palette, title=chart_def.title or "",
+            labels=labels, x=x, series=_chart_series(chart_def), save_path=buf,
+        )
+
+    if isinstance(result, tuple):
+        fig = result[0]
+        plt.close(fig if isinstance(fig, plt.Figure) else "all")
     elif isinstance(result, plt.Figure):
         plt.close(result)
     else:
-        plt.close('all')
+        plt.close("all")
 
     buf.seek(0)
     return buf
@@ -2114,8 +2226,10 @@ def generate_powerpoint_structured_yaml(
                 )
             elif "charts require" in error_msg:
                 hints.append(
-                    "Suggestion: 'comparison'/'part_of_whole' charts need 'categories' + 'values'; "
-                    "'trend' charts need 'x' + 'y'; 'distribution' charts need 'values'."
+                    "Suggestion: 'comparison'/'part_of_whole' charts need 'categories' + 'values' "
+                    "(or 'categories' + 'series'); 'trend' charts need 'x' + 'y'; "
+                    "'distribution' charts need 'values'. For multiple bars/lines use 'series' "
+                    "(a list of {name, values}); an optional 'chart_type' picks a specific shape."
                 )
             if hints:
                 error_msg = error_msg + "\n\n" + "\n".join(hints)
