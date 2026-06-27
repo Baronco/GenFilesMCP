@@ -148,19 +148,70 @@ it never fails the request over an unrecognized theme name.
 gradient background and a subtle decorative accent (derived from the theme — nothing to
 configure). Every other slide type stays flat and clean so body content remains easy to read.
 
-## Charts: 4 visualization intents (not chart types)
+## Charts: intents + optional refinements
 
-Every chart picks ONE `intent` — never a chart library name. The tool renders it with the
-active theme's palette automatically; there is no `palette`, `type`, or `kind` field to set.
+Every chart picks ONE `intent`. By default the tool renders a sensible chart with the
+active theme's palette automatically — there is no `palette` field to set.
 
 | intent | use it for | required fields |
 |---|---|---|
-| `comparison` | comparing values across categories | `categories` (list of strings) + `values` (list of numbers), same length |
-| `trend` | a value changing over time/sequence | `x` (list of numbers) + `y` (list of numbers), same length |
-| `distribution` | how a single set of values is spread out | `values` (list of numbers) |
-| `part_of_whole` | shares of a total | `categories` (list of strings) + `values` (list of numbers), same length |
+| `comparison` | comparing values across categories | `categories` (strings) + `values` (numbers), same length |
+| `trend` | a value changing over time/sequence | `x` (numbers) + `y` (numbers), same length |
+| `distribution` | how a single set of values is spread out | `values` (numbers) |
+| `part_of_whole` | shares of a total | `categories` (strings) + `values` (numbers), same length |
 
-`title` is optional on any chart. That's it — no other chart fields exist.
+`title` is optional on any chart. Everything below is **optional** — an intent + its
+data alone still works exactly as before.
+
+> **Always provide the axis labels.** `comparison`/`part_of_whole` need `categories`;
+> `trend` needs an axis too — use `x` (numbers) for a numeric axis, or `categories`
+> (strings) for a labeled axis like days/months. When you use `series` (below), the
+> axis stays the SAME field — `series` only replaces the y-`values`, it does **not**
+> replace `categories`/`x`.
+
+**Presentation polish** (great for exec decks): `x_label`, `y_label` (axis names),
+`value_format` (`auto`|`int`|`float1`|`percent`|`thousands`|`currency`),
+`value_labels` (true/false — bars show their value on top by default),
+`legend` (true/false).
+
+> Single-series **bar** charts are automatically sorted **highest → lowest** (a ranking) by
+> the backend — you don't need to pre-sort the data. (Trend lines, waterfalls, and
+> multi-series charts keep the order you provide.)
+
+**Multiple series** — pass `series` (a list of `{name, values}`) instead of a single
+`values`, sharing the same `categories` (or `x`). Keep the axis field — each series is
+just its y-values. Drives grouped/stacked/multi-line/combo. Example (grouped bars):
+```yaml
+chart:
+  intent: comparison
+  chart_type: bar            # or stacked_bar / stacked_bar_100
+  categories: ["Q1","Q2","Q3","Q4"]   # the shared axis — still required
+  y_label: "Unidades"
+  series:
+    - { name: "Producto A", values: [120,140,160,180] }
+    - { name: "Producto B", values: [90,95,100,130] }
+```
+
+**Explicit chart_type** (optional) — name a specific shape:
+`bar`, `stacked_bar`, `stacked_bar_100`, `line`, `area`, `stacked_area`,
+`pie`, `doughnut`, `scatter`, `bubble`, `combo`, `waterfall`.
+Omit it to use the intent's default. An unknown value safely falls back.
+
+For `combo`, each series can set `kind` (`bar`/`line`/`area`) and `axis`
+(`primary`/`secondary`), with `y2_label` naming the secondary axis.
+
+Example — combo (revenue bars + margin line on a second axis):
+```yaml
+chart:
+  intent: comparison
+  chart_type: combo
+  categories: ["Q1","Q2","Q3","Q4"]
+  y_label: "Ingresos (M$)"
+  y2_label: "Margen %"
+  series:
+    - { name: "Ingresos", values: [1.2,1.4,1.6,1.8], kind: bar,  axis: primary }
+    - { name: "Margen %", values: [22,24,27,29],      kind: line, axis: secondary }
+```
 
 ## Optional: style_override (advanced — most slides don't need this)
 
