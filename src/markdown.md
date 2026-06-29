@@ -1,28 +1,16 @@
-Generate a Markdown (.md) document using a **Python script** — plain-text structured content. Returns a markdown hyperlink for downloading the generated file.
+Generate a Markdown (.md) file with a Python script. On success the chat shows a download button automatically — never write or invent a download link.
 
-Markdown output is plain text and cannot embed binary images; call `fetch_uploaded_chat_file_ids` only if the request references files already uploaded in the chat.
+Call `generate_markdown` (`python_script`, `file_name`). Plain text only — cannot embed binary images.
 
-Template structure:
+## Example
 ```python
-# Allowed packages
-# Note: For simple Markdown, no additional packages are needed. pypandoc is optional for advanced formatting.
+MD_BUFFER = md_buffer                # keep this line exactly
 
-# Buffer to save the Markdown file, previously defined in the server.py file
-# IMPORTANT: MD_BUFFER is a BytesIO buffer (in-memory file-like object), not a file path.
-# Writing to it saves in RAM, not on disk. Always encode text to bytes with .encode('utf-8').
-MD_BUFFER = md_buffer # Do not modify this line, it is defined in the server.py file
-
-# Step 1: Build a Markdown document according to the user's request.
-# Use a plain string literal and escape newlines with \n if needed.
-markdown_content = "# Example Markdown Document here"
-
-# Step 2: Save the content to the buffer (recommended method for simple Markdown)
-# This writes directly to memory (RAM), no disk involved.
-MD_BUFFER.write(markdown_content.encode('utf-8'))
+content = "# Title\n\nBody text with **bold** and a list:\n\n- item 1\n- item 2\n"
+MD_BUFFER.write(content.encode("utf-8"))   # write bytes
 ```
 
-Provide a complete Python script following this template to generate your Markdown document.
-
-> **Reminder:** keep the buffer assignment line `MD_BUFFER = md_buffer` exactly as shown. If this line is omitted or renamed, the script will fail.
-
-When generation is successful, the chat UI shows a download button for the generated file.
+## Rules
+- Keep `MD_BUFFER = md_buffer` exactly.
+- Write bytes: `.encode("utf-8")`.
+- Plain text only; no binary images.
