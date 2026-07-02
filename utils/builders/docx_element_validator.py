@@ -1,12 +1,16 @@
+"""Validator and normaliser for DOCX body element dicts before document construction."""
 
 from json import dumps
 from typing import Dict, List, Union
-from utils.logger import get_logger
-from utils.pydantic_models_endpoints import DocxBodyElements
+
+from utils.config.logger import get_logger
+from utils.models.endpoints import DocxBodyElements
 
 logger = get_logger(__name__)
 
+
 def _as_dict(value):
+    """Coerce a value to a plain dict, returning {} if conversion fails."""
     if hasattr(value, "model_dump"):
         return value.model_dump(exclude_none=True)
     if isinstance(value, dict):
@@ -18,6 +22,14 @@ def _as_dict(value):
 
 
 def _normalize_legacy_element(raw):
+    """Normalise a legacy nested element (type as key instead of 'type' field).
+
+    Args:
+        raw: Dict where the element type is the single top-level key.
+
+    Returns:
+        Normalised flat dict with a 'type' field, or a dict with an 'error' key.
+    """
     if raw.get("paragraph") is not None and raw.get("header") is None and raw.get("list_item") is None and raw.get("table") is None and raw.get("image") is None and raw.get("equation") is None:
         paragraph = _as_dict(raw["paragraph"])
         text = paragraph.get("text")
@@ -76,6 +88,14 @@ def _normalize_legacy_element(raw):
 
 
 def _normalize_flat_element(raw):
+    """Normalise a flat element dict that has a 'type' discriminator field.
+
+    Args:
+        raw: Dict with a 'type' key identifying the element kind.
+
+    Returns:
+        Normalised flat dict, or a dict with an 'error' key on failure.
+    """
     element_type = raw.get("type")
     if element_type in ("ParagraphBody", "paragraph"):
         text = raw.get("text") or raw.get("content") or raw.get("body")
@@ -140,6 +160,14 @@ def _normalize_flat_element(raw):
 
 
 def _normalize_element(element):
+    """Dispatch a single element to the appropriate normaliser.
+
+    Args:
+        element: Raw element (Pydantic model instance or dict).
+
+    Returns:
+        Normalised flat dict, or a dict with an 'error' key.
+    """
     raw = _as_dict(element)
     if not isinstance(raw, dict):
         return {"error": "Document element is not a valid object."}
@@ -148,7 +176,15 @@ def _normalize_element(element):
     return _normalize_flat_element(raw)
 
 
-def generate_word_template_body_check(body: DocxBodyElements) -> Union[List, Dict]:
+def validate_docx_elements(body: DocxBodyElements) -> Union[List, Dict]:
+    """Validate and normalise all body elements from a DocxBodyElements instance.
+
+    Args:
+        body: Validated DocxBodyElements containing the list of document elements.
+
+    Returns:
+        List of normalised element dicts on success, or a JSON error string on failure.
+    """
     try:
         all_elements = []
         for index, element in enumerate(body.document_elements):

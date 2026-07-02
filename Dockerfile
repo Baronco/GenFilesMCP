@@ -15,6 +15,7 @@ COPY uv.lock ./
 COPY src/ ./src/
 COPY utils/ ./utils/
 COPY tools/ ./tools/
+COPY api/ ./api/
 
 # Install dependencies using UV, leveraging cache for faster builds
 RUN --mount=type=cache,target=/root/.cache/uv \

@@ -1,33 +1,29 @@
-from typing import Any
+"""Parser that converts a YAML string into a validated DocxBodyElements object."""
+
 import re
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
 
-from utils.pydantic_models_arguments import (
+from utils.config.logger import get_logger
+from utils.models.arguments import (
     Cover,
-    ElemHeader,
-    ElemParagraph,
-    ElemList,
-    ElemTable,
-    ElemImage,
     ElemEquation,
+    ElemHeader,
+    ElemImage,
+    ElemList,
     ElemPageBreak,
+    ElemParagraph,
+    ElemTable,
 )
-from utils.pydantic_models_endpoints import DocxBodyElements
-from utils.logger import get_logger
+from utils.models.endpoints import DocxBodyElements
 
 logger = get_logger(__name__)
 
-# Document style → number of body columns. The style is the single author-facing switch;
-# the column count is derived from it (columns_body is no longer authored).
 _STYLE_COLUMNS = {"ieee": 2, "report": 1}
 _DEFAULT_STYLE = "report"
 
-# A LaTeX equation written in a DOUBLE-quoted YAML scalar fails to parse, because YAML reads
-# backslashes as escape sequences (\c, \n, \t ...). Recovery: convert such `latex:` values to
-# SINGLE quotes (where backslashes are literal) and retry. This only runs after a parse error,
-# so it never touches a document that already parses (e.g. the valid double-backslash form).
 _LATEX_DQ_RE = re.compile(r'(?P<pre>(?:^|[\s{,])latex\s*:\s*)"(?P<val>[^"\n]*)"')
 
 _LATEX_HINT = (
@@ -38,9 +34,16 @@ _LATEX_HINT = (
 
 
 def _coerce_latex_double_quotes(text: str) -> str:
-    """Rewrite double-quoted `latex:` scalars as single-quoted (literal backslashes)."""
+    """Rewrite double-quoted ``latex:`` scalars as single-quoted to preserve backslashes.
+
+    Args:
+        text: Raw YAML string that may contain double-quoted latex values.
+
+    Returns:
+        Modified YAML string with latex values in single quotes.
+    """
     def _repl(match: "re.Match") -> str:
-        val = match.group("val").replace("'", "''")  # YAML single-quote escaping
+        val = match.group("val").replace("'", "''")
         return f"{match.group('pre')}'{val}'"
     return _LATEX_DQ_RE.sub(_repl, text)
 
@@ -61,15 +64,22 @@ _ELEMENT_MODEL_MAP = {
 
 
 def _validate_element(raw_element: Any) -> Any:
+    """Validate a single raw YAML element dict against its Pydantic model.
+
+    Args:
+        raw_element: Raw dict from the parsed YAML body list.
+
+    Returns:
+        Validated Pydantic model instance.
+
+    Raises:
+        ValueError: If the element type is missing, unrecognized, or fails validation.
+    """
     if not isinstance(raw_element, dict):
         raise ValueError("Each item in 'body' must be an object with a 'type' field.")
 
     element_type = raw_element.get("type")
 
-    # Accept the legacy nested form { "<elemtype>": {..fields..} } — where the element type is
-    # the single key instead of a 'type' field — by flattening it to { "type": ..., **fields }.
-    # The document builder already understands this shape; this keeps the parser consistent
-    # (LLMs frequently emit `- header:\n    text: ...` instead of `- type: header`).
     if not (isinstance(element_type, str) and element_type.strip()) and len(raw_element) == 1:
         only_key = next(iter(raw_element))
         if isinstance(only_key, str):
@@ -99,13 +109,22 @@ def _validate_element(raw_element: Any) -> Any:
 
 
 def parse_yaml_to_docx_body(document_yaml: str, file_name: str) -> DocxBodyElements:
-    # Strip YAML-illegal control characters that models sometimes inject
+    """Parse a YAML string and return a validated DocxBodyElements instance.
+
+    Args:
+        document_yaml: Raw YAML string describing cover, style_doc, and body elements.
+        file_name: Target filename for the generated DOCX (used in the returned model).
+
+    Returns:
+        Validated DocxBodyElements ready for the document builder.
+
+    Raises:
+        ValueError: If YAML parsing fails or required fields are invalid.
+    """
     document_yaml = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', document_yaml)
     try:
         parsed = yaml.safe_load(document_yaml)
     except yaml.YAMLError as yaml_error:
-        # Most common cause: a LaTeX equation in a double-quoted scalar. Try once more after
-        # coercing latex values to single quotes; if it still fails, surface an actionable hint.
         coerced = _coerce_latex_double_quotes(document_yaml)
         if coerced != document_yaml:
             try:
@@ -125,9 +144,6 @@ def parse_yaml_to_docx_body(document_yaml: str, file_name: str) -> DocxBodyEleme
     if not isinstance(cover_data, dict):
         raise ValueError("'cover' must be an object with cover metadata.")
 
-    # Document style is the single author-facing switch. Permissive: anything that is not
-    # a known style falls back to the default (never raises). The column count is DERIVED
-    # from the style; a legacy 'columns_body' key, if present, is tolerated but ignored.
     style_doc = parsed.get("style_doc", _DEFAULT_STYLE)
     if not isinstance(style_doc, str):
         style_doc = _DEFAULT_STYLE

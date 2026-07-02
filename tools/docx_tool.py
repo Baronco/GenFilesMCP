@@ -2,13 +2,12 @@ from io import BytesIO
 from json import dumps
 from pathlib import Path
 from docx import Document
-from utils.logger import get_logger
-
-from utils.download_file import download_file
-from utils.upload_file import upload_file
-from utils.knowledge import create_knowledge
-from utils.get_user_id import get_user_id
-from utils.authorization import _get_bearer_token
+from utils.config.logger import get_logger
+from utils.http.authorization import _get_bearer_token
+from utils.http.download_file import download_file
+from utils.http.get_user_id import get_user_id
+from utils.http.knowledge import create_knowledge
+from utils.http.upload_file import upload_file
 
 logger = get_logger(__name__)
 
@@ -156,7 +155,7 @@ def generate_word_from_template(doc_metadata, columns_body, doc_dict, file_name,
         buffer.name = f'{file_name}.docx'
         
         # Build the document
-        from utils.document_builder import build_docx_from_dict
+        from utils.builders.document_builder import build_docx_from_dict
         buffer = build_docx_from_dict(doc_full, buffer, request, URL)
         
         # Upload the file

@@ -1,7 +1,9 @@
 import json
 from typing import Annotated, List, Literal, Optional, Union, get_args, get_origin
+
 from pydantic import BaseModel, Field
-from utils.logger import get_logger
+
+from utils.config.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -127,7 +129,9 @@ class EquationElement(BaseModel):
     caption: Optional[str] = Field(default="", description="Optional caption for the equation.")
     index_element: Optional[int] = Field(default=None, description="Optional ordering index. If omitted, list order is preserved.")
 
+
 def _fields_summary(model: type[BaseModel]) -> str:
+    """Generate a compact field summary string for a Pydantic model, used in Field descriptions."""
     required_fields = [name for name, info in model.model_fields.items() if info.is_required()]
     required_text = ", ".join(required_fields) if required_fields else "none"
 
@@ -165,6 +169,7 @@ def _fields_summary(model: type[BaseModel]) -> str:
         f"JSON shape example: {example_text}."
     )
 
+
 elements_lit = Literal[
     "ParagraphBody",
     "ParagraphHeader",
@@ -199,5 +204,3 @@ DocElement = Annotated[
 ElementUnion = DocElement
 
 logger.info("=> Pydantic argument models loaded successfully.")
-
-
