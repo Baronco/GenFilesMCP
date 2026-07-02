@@ -1,11 +1,12 @@
 from io import BytesIO
-from utils.upload_file import upload_file
-from utils.knowledge import create_knowledge
-from utils.get_user_id import get_user_id
-from utils.authorization import _get_bearer_token
-from utils.download_file import download_file
 from json import dumps
-from utils.logger import get_logger
+
+from utils.config.logger import get_logger
+from utils.http.authorization import _get_bearer_token
+from utils.http.download_file import download_file
+from utils.http.get_user_id import get_user_id
+from utils.http.knowledge import create_knowledge
+from utils.http.upload_file import upload_file
 
 logger = get_logger(__name__)
 
