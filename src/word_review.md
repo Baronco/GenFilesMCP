@@ -1,17 +1,17 @@
-Review an uploaded Word (.docx) by adding comments (spelling, grammar, style, clarity). Two steps.
+Review an uploaded Word (.docx) with inline comments.
 
-## Steps
-1. Get the `file_id`: call `fetch_uploaded_chat_file_ids`.
-2. `list_docx_elements` (`file_id`, `file_name`) → returns each element's `index`, style, and text.
-3. `review_docx` (`file_id`, `file_name`, `review_comments`) → adds the comments.
+## Call chain
+1. `fetch_uploaded_chat_file_ids` → `file_id`
+2. `list_docx_elements(file_id, file_name)` → element list (each row has `index` + text)
+3. `review_docx(file_id, file_name, review_comments)` ← `index` values from step 2
 
 ## review_comments
-A list of `{"index": int, "comment": str}`:
+List of `{"index": int, "comment": str}`:
 ```json
-[{"index": 0, "comment": "Typo: 'teh' -> 'the'"}, {"index": 5, "comment": "Unclear; split this sentence."}]
+[{"index": 0, "comment": "Typo: 'teh' → 'the'"}, {"index": 5, "comment": "Unclear; split this sentence."}]
 ```
 
 ## Rules
-- `index` must come from `list_docx_elements` for the SAME document.
-- Comment only where it helps; keep each comment specific and actionable.
-- On success the chat shows a download button for the reviewed file automatically — never write or invent a download link.
+- `index` MUST come from step 2 — NEVER guess.
+- Keep comments specific and actionable.
+- On success the chat shows a download button — never invent a download link.

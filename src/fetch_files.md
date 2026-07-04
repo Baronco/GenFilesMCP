@@ -1,12 +1,8 @@
-Return the `file_id` of each file/image the user uploaded in the current chat.
+Return `file_id` for each uploaded file/image. Call FIRST on any request involving uploads.
 
-Call `fetch_uploaded_chat_file_ids` FIRST whenever a request involves an uploaded file or image.
-
-## Use the returned file_id
-- Embed an image: as `image_id` (PowerPoint YAML), `id` on an `image` element (Word YAML), or an entry of `images_list` (Python modes).
-- Review a Word doc: as `file_id` for `list_docx_elements` and `review_docx`.
+Use as: `image_id`(PPTX YAML) | `id` on `image` element(Word YAML) | `images_list` entry(Python modes) | `file_id` for `list_docx_elements`/`review_docx`.
 
 ## Rules
-- Use the `file_id` exactly as returned; never invent or change it.
-- If an upload is needed but no IDs come back, ask the user to attach the file.
-- Excel and Markdown cannot embed binary images.
+- Use `file_id` exactly as returned — NEVER invent or modify it.
+- No IDs returned → ask user to attach the file.
+- Excel and Markdown CANNOT embed binary images.
