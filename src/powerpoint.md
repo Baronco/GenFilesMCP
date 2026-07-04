@@ -14,14 +14,21 @@ prs = Presentation()
 prs.slide_width = Inches(13.333)    # 16:9
 prs.slide_height = Inches(7.5)
 slide = prs.slides.add_slide(prs.slide_layouts[6])
-# Build slides per the user's request.
 LIST_OF_BYTES_IO_IMAGES[0].seek(0)
 slide.shapes.add_picture(LIST_OF_BYTES_IO_IMAGES[0], Inches(2), Inches(1.5), width=Inches(9))
 prs.save(PPTX_BUFFER)               # keep this line exactly
+
+# Chart via seaborn/matplotlib
+import io, seaborn as sns
+fig = sns.barplot(x=["A", "B", "C"], y=[10, 20, 15])
+buf = io.BytesIO(); fig.figure.savefig(buf, format='png', bbox_inches='tight'); buf.seek(0)
+LIST_OF_BYTES_IO_IMAGES.append(buf)
+LIST_OF_BYTES_IO_IMAGES[-1].seek(0)
+slide.shapes.add_picture(LIST_OF_BYTES_IO_IMAGES[-1], Inches(2), Inches(1.5), width=Inches(9))
 ```
 
 ## Rules
 - Keep `PPTX_BUFFER = pptx_buffer` and `prs.save(PPTX_BUFFER)` exactly.
 - Use 16:9 (`13.333 x 7.5` inches).
 - `seek(0)` an image buffer right before `add_picture`.
-- To add a generated chart: render with matplotlib/seaborn to a `BytesIO`, `seek(0)`, append to `LIST_OF_BYTES_IO_IMAGES`, then `add_picture`. Available: `scipy`, `seaborn`, `matplotlib`, `pillow`, `numpy`.
+- Available: `scipy`, `seaborn`, `matplotlib`, `pillow`, `numpy`.
