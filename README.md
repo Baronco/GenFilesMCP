@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/baronco-genfilesmcp-badge.png)](https://mseep.ai/app/baronco-genfilesmcp)
+
 # GenFiles MCP Server 🧩
 
 GenFiles is an MCP Server that generates PowerPoint, Excel, Word, or Markdown files from user requests and chat context. This server executes Python templates or structured document builders to produce files, uploads them to an Open Web UI (OWUI) endpoint, and can persist them in Open WebUI knowledge collections depending on the selected transport and configuration. Additionally, it supports analyzing and reviewing existing Word documents by extracting their structure and adding comments for corrections, grammar suggestions, or idea enhancements.
