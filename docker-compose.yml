@@ -13,12 +13,51 @@ services:
       - OWUI_URL=http://open-webui:8080  # default name and port for OWUI with docker: http://open-webui:8080
       - PORT=8016
       - REVIEWER_AI_ASSISTANT_NAME=GenFilesMCP  # this is the name that will appear in the Open WebUI interface when the model calls the tool, you can change it to whatever you want
+    ports:
+      - "8016:8016"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8016/docs')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 #    networks:                # open-webui and genfiles-openapi must be on the same docker network, depending on your setup, default network is probably fine
 #      - ollama-tools
+
+    # Optional: enable docker compose watch for faster local development.
+    # Requires Docker Compose >= 2.22.0.
+    # Run with: docker compose watch
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+          ignore:
+            - __pycache__/
+        - action: sync
+          path: ./tools
+          target: /app/tools
+          ignore:
+            - __pycache__/
+        - action: sync
+          path: ./utils
+          target: /app/utils
+          ignore:
+            - __pycache__/
+        - action: sync
+          path: ./api
+          target: /app/api
+          ignore:
+            - __pycache__/
+        - action: sync
+          path: ./server.py
+          target: /app/server.py
+        - action: rebuild
+          path: ./pyproject.toml
+        - action: rebuild
+          path: ./uv.lock
 
 #networks:
 #  ollama-tools:
 #    external: false
 #    driver: bridge
-
-

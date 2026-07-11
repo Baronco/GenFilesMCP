@@ -7,10 +7,20 @@ wheels/
 *.egg-info
 # Virtual environments
 .venv
+venv/
 # Notebooks
 *.ipynb
 # env vars
 *.env
+.env.*
+# Editor / IDE
+.vscode/
+.idea/
+# Temporary / OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
 # local folders
 /documentos_test/*
 /Pruebas/*
@@ -30,3 +40,7 @@ test_pptx/
 tools/render_pptx.ps1
 CLAUDE.md
 tests
+
+# Agent / project management files
+.opencode/
+AGENTS.md

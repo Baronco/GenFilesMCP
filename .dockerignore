@@ -1,0 +1,60 @@
+# Git
+.git/
+.gitignore
+
+# Python caches and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Environment and secrets
+.env
+.env.*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Docker files (not needed inside the image)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Documentation and project management (not needed at runtime)
+docs/
+specs/
+.specify/
+.claude/
+.opencode/
+
+# Local test output and scratch folders
+tests/
+tools/render_pptx.ps1
+_render_*/
+_render_*.pptx
+test_pptx/
+documentos_test/
+Pruebas/
+
+# Misc local files
+release_description.md
+Evaluacion de modelos.md
+test_presentation.pptx
+OpenWebUI_Headers.md
+RICH_UI.md
+rich-ui.mdx
+CLAUDE.md

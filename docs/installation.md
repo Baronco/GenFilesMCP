@@ -127,6 +127,47 @@ Run:
 docker compose up -d
 ```
 
+### Faster Local Development
+
+The project is configured to take advantage of Docker layer caching and Docker Compose `watch` for a faster local feedback loop.
+
+**Build from source with caching:**
+
+```bash
+docker compose up --build -d
+```
+
+The Dockerfile separates dependency installation from source code copying, so changing a source file does not reinstall all Python packages.
+
+**Live-reload with Compose watch (requires Docker Compose >= 2.22.0):**
+
+```bash
+docker compose watch
+```
+
+This syncs changes to `src/`, `tools/`, `utils/`, `api/`, and `server.py` into the running container without rebuilding the image. Changes to `pyproject.toml` or `uv.lock` automatically trigger an image rebuild because they affect dependencies.
+
+**Force a clean rebuild (cache bust):**
+
+```bash
+docker compose build --no-cache
+docker compose up -d
+```
+
+Or for a single image build:
+
+```bash
+docker build --no-cache -t genfilesmcp .
+```
+
+**Check service health:**
+
+The compose file includes a healthcheck on `http://localhost:8016/docs`. You can view the status with:
+
+```bash
+docker compose ps
+```
+
 ## Open WebUI Requirements
 
 ### Environment Variables (Open WebUI side)
