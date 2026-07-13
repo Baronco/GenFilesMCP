@@ -16,6 +16,7 @@ slides:
 
 ## Slide types
 `cover|section_divider|content_text|content_image|two_column|content_mixed|content_latex|timeline|stat_highlight`
+- `cover` and `section_divider` render white title/subtitle text and a white accent bar on a colored gradient background for strong contrast.
 - `text` field: `\n`= line break; `- `/`* `/`1.` prefix→bullet. NEVER a YAML list.
 - `content_mixed`: optional `text` left + ONE of `chart`|`table`|`image_id` right.
 - `timeline`: ≥2 `{fecha,titulo}` items; `style` horizontal(3-5)|vertical(4-6); `active_index` marks active.

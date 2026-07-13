@@ -57,7 +57,6 @@ def build_cover(prs, theme: Theme, data: CoverSlide, image_registry: dict, varia
     c1, c2, angle, txt = _impact_gradient(theme, variant)
     _apply_gradient_background(slide, c1, c2, angle)
     W, H = prs.slide_width, prs.slide_height
-    secondary = _blend_color(txt, RGBColor(128, 128, 128), 0.22)
     inner_x = MARGIN + Inches(0.5)
     inner_w = W - inner_x - MARGIN - Inches(0.5)
 
@@ -80,12 +79,12 @@ def build_cover(prs, theme: Theme, data: CoverSlide, image_registry: dict, varia
     if data.subtitle:
         add_text_box(slide, inner_x, y, inner_w, SUB_H,
                      data.subtitle, theme.font_body, 22,
-                     color=secondary, align=PP_ALIGN.LEFT)
+                     color=txt, align=PP_ALIGN.LEFT)
         y += SUB_H + GAP_SD
     if data.date:
         add_text_box(slide, inner_x, y, inner_w, DATE_H,
                      data.date, theme.font_body, 14,
-                     color=secondary, align=PP_ALIGN.LEFT)
+                     color=txt, align=PP_ALIGN.LEFT)
     _add_notes(slide, data.notes)
 
 
@@ -364,7 +363,6 @@ def build_section_divider(prs, theme: Theme, data: SectionDividerSlide, image_re
     W, H = prs.slide_width, prs.slide_height
     inner_x = MARGIN + Inches(0.5)
     inner_w = W - inner_x - MARGIN - Inches(0.5)
-    secondary = _blend_color(txt, RGBColor(128, 128, 128), 0.22)
     KICK_H = Inches(0.085)
     TITLE_H = Inches(1.3)
     SUB_H = Inches(0.65) if data.subtitle else Inches(0)
@@ -379,7 +377,7 @@ def build_section_divider(prs, theme: Theme, data: SectionDividerSlide, image_re
     if data.subtitle:
         add_text_box(slide, inner_x, block_top + KICK_H + GAP_KT + TITLE_H + GAP, inner_w, SUB_H,
                      data.subtitle, theme.font_body, 22,
-                     color=secondary, align=PP_ALIGN.LEFT)
+                     color=txt, align=PP_ALIGN.LEFT)
     _add_notes(slide, data.notes)
 
 

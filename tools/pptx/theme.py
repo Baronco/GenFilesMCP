@@ -71,11 +71,13 @@ def _scale_lightness(rgb: RGBColor, factor: float) -> RGBColor:
 
 
 def _impact_gradient(theme: Theme, variant: int = 0):
-    """Return (color1, color2, angle, text_color) gradient used on all impact slides."""
+    """Return (color1, color2, angle, text_color) gradient used on all impact slides.
+    Impact slides always render white text/shapes; gradient stops are darkened as
+    needed to keep that white text legible against both colors."""
     accent = hex_to_rgb(theme.accent_color)
     grad = hex_to_rgb(theme.gradient_accent)
     bg = hex_to_rgb(theme.background_color)
-    white, black = RGBColor(255, 255, 255), RGBColor(20, 20, 20)
+    white = RGBColor(255, 255, 255)
     dark_theme = _relative_luminance(bg) < 0.2
 
     def min_contrast(t):
@@ -84,18 +86,25 @@ def _impact_gradient(theme: Theme, variant: int = 0):
 
     if dark_theme:
         c1, c2 = _scale_lightness(accent, 0.72), _scale_lightness(grad, 0.62)
-        use_white = True
     else:
         c1, c2 = accent, grad
-        use_white = min_contrast(white) >= min_contrast(black)
 
-    text = white if use_white else black
-    factor = 0.9 if use_white else 1.12
+    text = white
+    factor = 0.9
     for _ in range(14):
         if min_contrast(text) >= 4.5:
             break
         c1, c2 = _scale_lightness(c1, factor), _scale_lightness(c2, factor)
     return c1, c2, 55.0, text
+
+
+def impact_gradient_info(theme: Theme, variant: int = 0):
+    """Return impact-gradient metadata as a tuple:
+    (color1, color2, angle, text_color, min_contrast).
+    Useful for tests and debugging to verify white-text legibility."""
+    c1, c2, angle, text = _impact_gradient(theme, variant)
+    min_contrast = min(_wcag_contrast(text, c1), _wcag_contrast(text, c2))
+    return c1, c2, angle, text, min_contrast
 
 
 def _header_fill(accent_rgb: RGBColor) -> RGBColor:
