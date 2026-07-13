@@ -145,13 +145,7 @@ Example of PDF generation using claude sonnet 4.6:
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=Baronco%2FGenFilesMCP&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Baronco/GenFilesMCP&type=date&theme=dark&legend=top-left&sealed_token=1EbLAzRuGeIzaNiWGC4-o5blbeYNId781n-pM6fy-SBJqA13x363tboH-iMoRle5C3h7Ou9Ye1pLK6tyqrIAlM1UB4DdIZ_UXTZ18IPFwdhSOH9jreixEYNEOEsiSLCW8uJZaogjFtKnbbuV326_lQCq_rpAJyHeq8fniWYUF8z7KMbOrchi5OUgvKwQ" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Baronco/GenFilesMCP&type=date&legend=top-left&sealed_token=1EbLAzRuGeIzaNiWGC4-o5blbeYNId781n-pM6fy-SBJqA13x363tboH-iMoRle5C3h7Ou9Ye1pLK6tyqrIAlM1UB4DdIZ_UXTZ18IPFwdhSOH9jreixEYNEOEsiSLCW8uJZaogjFtKnbbuV326_lQCq_rpAJyHeq8fniWYUF8z7KMbOrchi5OUgvKwQ" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Baronco/GenFilesMCP&type=date&legend=top-left&sealed_token=1EbLAzRuGeIzaNiWGC4-o5blbeYNId781n-pM6fy-SBJqA13x363tboH-iMoRle5C3h7Ou9Ye1pLK6tyqrIAlM1UB4DdIZ_UXTZ18IPFwdhSOH9jreixEYNEOEsiSLCW8uJZaogjFtKnbbuV326_lQCq_rpAJyHeq8fniWYUF8z7KMbOrchi5OUgvKwQ" />
- </picture>
-</a>
+[![Star History Chart](https://api.star-history.com/chart?repos=Baronco/GenFilesMCP&type=date&legend=top-left&sealed_token=1EbLAzRuGeIzaNiWGC4-o5blbeYNId781n-pM6fy-SBJqA13x363tboH-iMoRle5C3h7Ou9Ye1pLK6tyqrIAlM1UB4DdIZ_UXTZ18IPFwdhSOH9jreixEYNEOEsiSLCW8uJZaogjFtKnbbuV326_lQCq_rpAJyHeq8fniWYUF8z7KMbOrchi5OUgvKwQ)](https://www.star-history.com/?repos=Baronco%2FGenFilesMCP&type=date&legend=top-left)
 
 ## License
 
