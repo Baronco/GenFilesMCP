@@ -25,7 +25,7 @@ Requires **Open WebUI >= 0.9.0**.
 To quickly get started, use the pre-built Docker image:
 
 ```bash
-docker pull ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.5
+docker pull ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.6
 ```
 
 Run the container:
@@ -37,13 +37,13 @@ docker run -d --restart unless-stopped -p 8016:8016 \
   -e REVIEWER_AI_ASSISTANT_NAME="GenFiles" \
   -e ENABLE_CREATE_KNOWLEDGE=false \
   --name genfiles-openapi \
-  ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.5
+  ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.6
 ```
 
 Or copy and paste this one-liner:
 
 ```bash
-docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name genfiles-openapi ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.5
+docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.docker.internal:3000" -e PORT=8016 -e REVIEWER_AI_ASSISTANT_NAME="GenFilesMCP" -e ENABLE_CREATE_KNOWLEDGE=false --name genfiles-openapi ghcr.io/baronco/genfiles-openapi:v0.4.0-alpha.6
 ```
 
 ### Environment Variables

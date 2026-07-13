@@ -29,6 +29,23 @@ This new version can include images embedded directly into the generated Word do
 
 Your assistant can generate documents with one column or two columns for academic papers.
 
+When using the structured YAML mode for Word, set `style_doc: report` for a standard one-column layout or `style_doc: ieee` for a two-column, indented academic-paper layout:
+
+```yaml
+style_doc: ieee
+cover:
+  title: "Gradient Descent"
+  subtitle: "A concise review"
+  author: "AI Assistant"
+  month: "Jul"
+  year: "2026"
+  page_break: true
+body:
+  - {type: header, text: "1. Introduction", level: 1}
+  - {type: paragraph, text: "Gradient descent is an iterative optimization algorithm..."}
+  - {type: equation, latex: '\\theta := \\theta - \\alpha \\nabla J(\\theta)', caption: "Update rule"}
+```
+
 You can find results like this in the `example\DOCX` folder of the repository. Each document was exported manually as .pdf to be able to view the results in github, but you can find the original .docx files in the same folder.
 
 #### Results Summary 📊
@@ -134,6 +151,22 @@ Open the generated file in PowerPoint:
 </p>
 
 > **Example files**: You can find example PPTX files in the `example` folder.
+
+The structured YAML mode for PowerPoint supports themes, executive-chart intents, and slide types such as `stat_highlight` for KPI cards. Use `intent` to describe the chart purpose and let the backend pick a suitable chart type, or set `chart_type` explicitly:
+
+```yaml
+theme: corporate_blue
+slides:
+  - {type: cover, title: "🚀 Q2 Results", subtitle: "Executive summary", date: "Jul 2026"}
+  - {type: stat_highlight, value: "40%", label: "YoY growth", supporting_text: "Driven by new enterprise accounts"}
+  - type: content_mixed
+    title: "📊 Revenue by Region"
+    chart:
+      intent: comparison
+      categories: ["North", "South", "East", "West"]
+      values: [120, 95, 140, 110]
+      value_format: currency
+```
 
 ### Example 4: Reviewing a DOCX file with comments
 
