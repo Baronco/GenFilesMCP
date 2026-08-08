@@ -1,4 +1,4 @@
-Generate a PowerPoint (.pptx) with a Python script (`python-pptx`). On success the chat shows a download button automatically — never write or invent a download link.
+Generate a PowerPoint (.pptx) with a Python script (`python-pptx`). {{SUCCESS_DELIVERY_RULE}}
 
 Call `generate_powerpoint` (`python_script`, `file_name`, `images_list`). For uploaded images, call `fetch_uploaded_chat_file_ids` first; the server preloads them into `LIST_OF_BYTES_IO_IMAGES`.
 

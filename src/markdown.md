@@ -1,4 +1,4 @@
-Generate a Markdown (.md) file with a Python script. On success the chat shows a download button — never invent a download link.
+Generate a Markdown (.md) file with a Python script. {{SUCCESS_DELIVERY_RULE}}
 
 CANNOT embed charts or images. Call `generate_markdown` (`python_script`, `file_name`).
 

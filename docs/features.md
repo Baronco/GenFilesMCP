@@ -18,10 +18,11 @@
 - **Knowledge Base Integration**: Generated and reviewed documents can be stored in Open WebUI knowledge collections for later access, download, deletion, and reuse from other chats.
 - **Multi-User Support**: Each request is authenticated with the active user's bearer token, forwarded by Open WebUI, so documents are generated and uploaded on behalf of the correct user.
 - **Optimized Docker Build**: Dockerfile uses layer caching and an unprivileged user; Docker Compose supports `watch` sync and a healthcheck for faster local development.
+- **Dynamic Sub-Agent Instructions**: When `DOWNLOAD_HTML_BUTTON=false`, the assistant-facing instructions in every generator and reviewer tool description automatically switch to a verbatim-relay rule, telling the model to expose the `file_path_download` markdown link as-is (without inventing, rewriting, or paraphrasing the URL) so sub-agent workflows receive a working download link in every reply. The default mode keeps the original "download button" instruction byte-for-byte.
 
 ## Status / Compatibility
 
-This release is **v0.4.0-alpha.6** and requires **Open WebUI >= 0.9.0**: [Open WebUI GitHub Repository](https://github.com/open-webui/open-webui)
+This release is **v0.4.0-alpha.8** and requires **Open WebUI >= 0.9.0**: [Open WebUI GitHub Repository](https://github.com/open-webui/open-webui)
 
 The `ENABLE_CREATE_KNOWLEDGE` variable controls whether generated or reviewed files are automatically added to the user's knowledge collection. The base collection name is set with `KNOWLEDGE_COLLECTION_NAME`.
 

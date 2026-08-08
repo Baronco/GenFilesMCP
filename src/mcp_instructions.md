@@ -7,4 +7,4 @@ GenFiles generates PowerPoint, Excel, Word, Markdown, and PDF files, and reviews
 
 ## Rules
 - Each tool description contains its full instructions (script template, YAML schema, or review steps).
-- Successful generation shows a **download button** in chat automatically. NEVER write, invent, or repeat a download link.
+- Successful generation shows a {{SUCCESS_DELIVERY_RULE}} in chat automatically. NEVER write, invent, or repeat a download link.

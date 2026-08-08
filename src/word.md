@@ -1,4 +1,4 @@
-Generate a Word (.docx) with a Python script (`python-docx`). On success the chat shows a download button — never invent a download link.
+Generate a Word (.docx) with a Python script (`python-docx`). {{SUCCESS_DELIVERY_RULE}}
 
 Call `generate_word` (`python_script`, `file_name`, `images_list`). Uploaded images: call `fetch_uploaded_chat_file_ids` first; server preloads into `LIST_OF_BYTES_IO_IMAGES`.
 

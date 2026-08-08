@@ -14,4 +14,4 @@ List of `{"index": int, "comment": str}`:
 ## Rules
 - `index` MUST come from step 2 — NEVER guess.
 - Keep comments specific and actionable.
-- On success the chat shows a download button — never invent a download link.
+- On success the chat shows a {{SUCCESS_DELIVERY_RULE}} — never invent a download link.

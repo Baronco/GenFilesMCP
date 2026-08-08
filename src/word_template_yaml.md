@@ -1,4 +1,4 @@
-Generate a Word (.docx) from structured YAML. On success the chat shows a download button — never invent a download link.
+Generate a Word (.docx) from structured YAML. {{SUCCESS_DELIVERY_RULE}}
 
 Call `generate_word_structured_yaml` (`document_yaml`, `file_name`). For uploaded images call `fetch_uploaded_chat_file_ids` first.
 

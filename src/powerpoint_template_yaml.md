@@ -1,4 +1,4 @@
-Generate a PowerPoint (.pptx) from structured YAML (theme + ordered slides). On success the chat shows a download button — never invent a download link.
+Generate a PowerPoint (.pptx) from structured YAML (theme + ordered slides). {{SUCCESS_DELIVERY_RULE}}
 
 Call `generate_powerpoint_structured_yaml` (`document_yaml`, `file_name`). `theme`: one name. `slides`: ordered list; each has a `type`. For uploaded images call `fetch_uploaded_chat_file_ids` first; use the ID as `image_id`.
 
