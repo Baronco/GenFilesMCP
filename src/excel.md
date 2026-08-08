@@ -1,4 +1,4 @@
-Generate an Excel (.xlsx) with a Python script (`openpyxl`). On success the chat shows a download button — never invent a download link.
+Generate an Excel (.xlsx) with a Python script (`openpyxl`). {{SUCCESS_DELIVERY_RULE}}
 
 Call `generate_excel` (`python_script`, `file_name`). No preloaded image list.
 
