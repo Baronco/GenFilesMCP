@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Request
 
-from api.shared import build_request_context, render_download_button_html
+from api.shared import build_request_context, build_download_response
 from tools.markdown_tool import generate_markdown as _generate_markdown
 from utils.config.argument_descriptions import ARGUMENT_DESCRIPTIONS
 from utils.config.logger import get_logger
@@ -41,8 +41,7 @@ async def generate_markdown(
             ENABLE_CREATE_KNOWLEDGE,
             KNOWLEDGE_COLLECTION_NAME
         )
-        download_html = render_download_button_html(result)
-        return download_html if download_html is not None else result
+        return build_download_response(result)
     except Exception as e:
         logger.error(f"Error generating Markdown document: {e}")
         return dumps({"error": "An error occurred while generating the Markdown document."}, ensure_ascii=False)

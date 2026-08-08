@@ -7,7 +7,7 @@ from typing import Annotated, List
 from fastapi import APIRouter, Body, Request
 from requests import get
 
-from api.shared import build_request_context, extract_files_from_chat, render_download_button_html
+from api.shared import build_request_context, extract_files_from_chat, build_download_response
 from tools.docx_tool import full_context_docx as _full_context_docx
 from tools.docx_tool import review_docx as _review_docx
 from utils.config.argument_descriptions import ARGUMENT_DESCRIPTIONS
@@ -69,8 +69,7 @@ async def review_docx(
             REVIEWER_AI_ASSISTANT_NAME,
             KNOWLEDGE_COLLECTION_NAME
         )
-        download_html = render_download_button_html(result)
-        return download_html if download_html is not None else result
+        return build_download_response(result)
     except Exception as e:
         logger.error(f"Error reviewing DOCX document: {e}")
         return dumps({"error": "An error occurred while reviewing the DOCX document."}, ensure_ascii=False)
