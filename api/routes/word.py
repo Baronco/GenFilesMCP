@@ -6,7 +6,7 @@ from typing import Annotated, List
 
 from fastapi import APIRouter, Body, Request
 
-from api.shared import build_request_context, render_download_button_html
+from api.shared import build_request_context, build_download_response
 from tools.docx_tool import generate_word as _generate_word
 from tools.docx_tool import generate_word_from_template as _generate_word_from_template
 from utils.builders.docx_element_validator import validate_docx_elements
@@ -48,8 +48,7 @@ async def _generate_word_structured_yaml_handler(
             KNOWLEDGE_COLLECTION_NAME,
             style_doc=body.style_doc,
         )
-        download_html = render_download_button_html(result)
-        return download_html if download_html is not None else result
+        return build_download_response(result)
     except ValueError as e:
         logger.error(f"YAML validation error generating Word document: {e}")
         return dumps({"error": str(e)}, ensure_ascii=False)
@@ -77,8 +76,7 @@ async def _generate_word_handler(
             ENABLE_CREATE_KNOWLEDGE,
             KNOWLEDGE_COLLECTION_NAME
         )
-        download_html = render_download_button_html(result)
-        return download_html if download_html is not None else result
+        return build_download_response(result)
     except Exception as e:
         logger.error(f"Error generating Word document: {e}")
         return dumps({"error": "An error occurred while generating the Word document."}, ensure_ascii=False)

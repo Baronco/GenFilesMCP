@@ -192,6 +192,7 @@ Additionally, set `JWT Expiration` to a finite duration such as `4h` in Open Web
 | `REVIEWER_AI_ASSISTANT_NAME` | Author name used inside Word comments created by `review_docx` | `GenFilesMCP` |
 | `ENABLE_CREATE_KNOWLEDGE` | Whether generated or reviewed files are added to Open WebUI knowledge collections | `false` |
 | `ENABLE_STRUCTURED_YAML_MODE` | Enables YAML-based structured generation for Word and PowerPoint (preferred mode) | `true` |
+| `DOWNLOAD_HTML_BUTTON` | Whether generator and reviewer endpoints return the HTML download-button page; set to `false` to return the raw JSON result with `download_url` for sub-agents | `true` |
 
 ### Knowledge Base and Permissions
 

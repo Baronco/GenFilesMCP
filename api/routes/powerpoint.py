@@ -6,7 +6,7 @@ from typing import Annotated, List
 
 from fastapi import APIRouter, Body, Request
 
-from api.shared import build_request_context, render_download_button_html
+from api.shared import build_request_context, build_download_response
 from tools.pptx import generate_powerpoint as _generate_powerpoint
 from tools.pptx import generate_powerpoint_structured_yaml as _generate_powerpoint_structured_yaml
 from utils.config.argument_descriptions import ARGUMENT_DESCRIPTIONS
@@ -40,8 +40,7 @@ async def _generate_powerpoint_handler(
             ENABLE_CREATE_KNOWLEDGE,
             KNOWLEDGE_COLLECTION_NAME
         )
-        download_html = render_download_button_html(result)
-        return download_html if download_html is not None else result
+        return build_download_response(result)
     except Exception as e:
         logger.error(f"Error generating PowerPoint presentation: {e}")
         return dumps({"error": "An error occurred while generating the PowerPoint presentation."}, ensure_ascii=False)
@@ -64,8 +63,7 @@ async def _generate_powerpoint_structured_yaml_handler(
             ENABLE_CREATE_KNOWLEDGE,
             KNOWLEDGE_COLLECTION_NAME
         )
-        download_html = render_download_button_html(result)
-        return download_html if download_html is not None else result
+        return build_download_response(result)
     except ValueError as e:
         logger.error(f"YAML validation error generating PowerPoint document: {e}")
         return dumps({"error": str(e)}, ensure_ascii=False)

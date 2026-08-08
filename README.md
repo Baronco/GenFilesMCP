@@ -56,6 +56,7 @@ docker run -d --restart unless-stopped -p 8016:8016 -e OWUI_URL="http://host.doc
 | `REVIEWER_AI_ASSISTANT_NAME`  | Author name used inside Word comments created by `review_docx`                               | `GenFilesMCP`                      |
 | `ENABLE_CREATE_KNOWLEDGE`     | Whether generated or reviewed files are added to Open WebUI knowledge collections            | `false`                            |
 | `ENABLE_STRUCTURED_YAML_MODE` | Enables YAML-based structured generation for Word and PowerPoint            | `true`                             |
+| `DOWNLOAD_HTML_BUTTON`        | Whether generator and reviewer endpoints return the HTML download-button page; set to `false` to return the raw JSON result with `download_url` for sub-agents | `true` |
 
 > **Open WebUI requirement:** set `ENABLE_FORWARD_USER_INFO_HEADERS=True` in your Open WebUI environment. This makes Open WebUI forward the active user's bearer token to GenFiles so documents are uploaded and reviewed on behalf of the correct user.
 

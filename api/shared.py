@@ -1,9 +1,12 @@
 """Shared helpers used across all API route modules."""
 
 from html import escape
+from os import getenv
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
+
+DOWNLOAD_HTML_BUTTON = getenv('DOWNLOAD_HTML_BUTTON', 'true').lower() == 'true'
 
 
 def build_request_context(request: Request) -> dict[str, dict[str, str]]:
@@ -168,6 +171,20 @@ def render_download_button_html(result: dict) -> HTMLResponse | None:
 </html>"""
 
     return HTMLResponse(content=html, headers={"Content-Disposition": "inline", "Content-Type": "text/html"})
+
+
+def build_download_response(result: dict):
+    """Return the download-button page for downloadable results, or the raw result.
+
+    When the DOWNLOAD_HTML_BUTTON environment setting is disabled, the original
+    structured result is always returned so sub-agents can read the download URL
+    directly. When enabled (default), behavior matches the previous logic: the
+    HTML download-button page for downloadable results, otherwise the raw result.
+    """
+    if not DOWNLOAD_HTML_BUTTON:
+        return result
+    download_html = render_download_button_html(result)
+    return download_html if download_html is not None else result
 
 
 def extract_files_from_chat(chat_data: dict) -> list:
