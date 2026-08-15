@@ -1,3 +1,5 @@
+
+
 # GenFiles MCP Server 🧩
 
 GenFiles is an MCP Server that generates PowerPoint, Excel, Word, or Markdown files from user requests and chat context. This server executes Python templates or structured document builders to produce files, uploads them to an Open Web UI (OWUI) endpoint, and can persist them in Open WebUI knowledge collections depending on the selected transport and configuration. Additionally, it supports analyzing and reviewing existing Word documents by extracting their structure and adding comments for corrections, grammar suggestions, or idea enhancements.
@@ -12,7 +14,7 @@ GenFiles is an MCP Server that generates PowerPoint, Excel, Word, or Markdown fi
     - **MCP HTTP Streamable**: Direct HTTP service.
     - **MCP Stdio via MCPO**: Integrated with MCPO.
   - Get the suggested system prompt for your AI Assistant
-  - Get the built-in tool `Chat Context Tool` for retrieving docx files and images uploaded in the chat for use in generation or review.
+  - Get the custom tool `Chat Context Tool` for retrieving docx files and images uploaded in the chat for use in generation or review.
   - Step-by-step setup instructions.
 - [Usage Examples](docs/usage.md) 📄
   - See how to generate DOCX, XLSX, PPTX files.
