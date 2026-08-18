@@ -43,7 +43,20 @@ def full_context_docx(file_id, file_name, request, URL):
             if not text:
                 continue  # Skip empty paragraphs
 
-            style = part.style.name
+            try:
+                style = part.style.name
+            except Exception as exc:
+                logger.warning(
+                    "=> Failed to extract style for paragraph %d (%s); recording empty style, preserving text.",
+                    idx, str(exc)[:200]
+                )
+                text_body["body"].append({
+                    "index": idx,
+                    "style": "",
+                    "text": text
+                })
+                continue
+
             text_body["body"].append({
                 "index": idx,
                 "style": style,

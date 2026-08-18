@@ -14,4 +14,5 @@ List of `{"index": int, "comment": str}`:
 ## Rules
 - `index` MUST come from step 2 — NEVER guess.
 - Keep comments specific and actionable.
+- `list_docx_elements` only lists paragraphs that carry text; if a heading or surrounding text mentions a chart, table, image, or other non-text element, assume that element exists in the document even though the list does not include it.
 - On success the chat shows a {{SUCCESS_DELIVERY_RULE}} — never invent a download link.
