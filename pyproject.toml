@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GenFiles"
-version = "0.4.0-alpha.7"
+version = "0.4.0-alpha.8"
 description = "You can generate '.md', '.docx', '.pptx', '.xlsx' and '.pdf' 🚀 Powered by AI"
 readme = "README.md"
 requires-python = ">=3.13"

@@ -578,7 +578,7 @@ wheels = [
 
 [[package]]
 name = "genfiles"
-version = "0.4.0a7"
+version = "0.4.0a8"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
